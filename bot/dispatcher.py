@@ -387,9 +387,10 @@ Return a JSON object (and NOTHING else) with these fields:
   * "chat" → the user is asking a general question related to finance
   * "none" → the message is irrelevant or you are unsure
 - "codes": a list of stock codes mentioned (may be empty).
-  Format: A-share 6-digit ("600519"), HK with prefix ("hk00700"), US ticker uppercase ("AAPL").
+  Format: A-share 6-digit ("600519"), HK with prefix ("hk00700"), US ticker uppercase ("AAPL"),
+  commodity/forex tickers ("XAUUSD=X", "GC=F", "DX-Y.NYB").
 - "strategy": strategy/technique name if the user specified one, else null.
-  e.g. "缠论", "MACD", "趋势跟踪", "chan_theory", etc.
+  e.g. "缠论", "MACD", "趋势跟踪", "chan_theory", "黄金", etc.
 
 Examples:
 User: "帮我分析一下600519和000858"
@@ -397,6 +398,12 @@ User: "帮我分析一下600519和000858"
 
 User: "用缠论看看AAPL"
 {"intent":"analysis","codes":["AAPL"],"strategy":"缠论"}
+
+User: "分析一下黄金"
+{"intent":"analysis","codes":["XAUUSD=X"],"strategy":"黄金"}
+
+User: "伦敦金怎么样"
+{"intent":"analysis","codes":["XAUUSD=X"],"strategy":null}
 
 User: "今天大盘怎么样"
 {"intent":"chat","codes":[],"strategy":null}
@@ -427,7 +434,8 @@ User: "analyze TSLA and NVDA using trend strategy"
         r'|分析|看看|查一?下|研究|诊断|怎么样|走势|趋势'
         r'|能买|可以买|涨还是跌|怎么看|能追|建议|目标价'
         r'|支撑|压力|阻力|止损|买点|卖点|技术面|基本面|筹码'
-        r'|(?i:analyz|stock|buy|sell|trend|backtest|strateg)',
+        r'|黄金|金价|伦敦金|贵金属|白银|原油|期货|外汇|美元指数'
+        r'|(?i:analyz|stock|buy|sell|trend|backtest|strateg|gold|XAUUSD|XAU|DXY)',
     )
 
     _NL_NAME_CLEANUP_PATTERNS = (

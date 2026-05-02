@@ -94,12 +94,16 @@ class TrendAnalysisResult:
     ma10: float = 0.0
     ma20: float = 0.0
     ma60: float = 0.0
+    ma50: float = 0.0
+    ma200: float = 0.0
     current_price: float = 0.0
     
-    # 乖离率（与 MA5 的偏离度）
+    # 乖离率
     bias_ma5: float = 0.0            # (Close - MA5) / MA5 * 100
     bias_ma10: float = 0.0
     bias_ma20: float = 0.0
+    bias_ma50: float = 0.0
+    bias_ma200: float = 0.0
     
     # 量能分析
     volume_status: VolumeStatus = VolumeStatus.NORMAL
@@ -126,6 +130,18 @@ class TrendAnalysisResult:
     rsi_status: RSIStatus = RSIStatus.NEUTRAL
     rsi_signal: str = ""              # RSI 信号描述
 
+    # 布林带指标 (20,2)
+    bb_upper: float = 0.0
+    bb_middle: float = 0.0
+    bb_lower: float = 0.0
+    bb_width: float = 0.0            # (upper - lower) / middle * 100
+    bb_position: float = 0.0         # (price - lower) / (upper - lower) — 0 to 1
+
+    # ADX 指标 (14)
+    adx: float = 0.0
+    adx_plus_di: float = 0.0
+    adx_minus_di: float = 0.0
+
     # 买入信号
     buy_signal: BuySignal = BuySignal.WAIT
     signal_score: int = 0            # 综合评分 0-100
@@ -142,10 +158,14 @@ class TrendAnalysisResult:
             'ma10': self.ma10,
             'ma20': self.ma20,
             'ma60': self.ma60,
+            'ma50': self.ma50,
+            'ma200': self.ma200,
             'current_price': self.current_price,
             'bias_ma5': self.bias_ma5,
             'bias_ma10': self.bias_ma10,
             'bias_ma20': self.bias_ma20,
+            'bias_ma50': self.bias_ma50,
+            'bias_ma200': self.bias_ma200,
             'volume_status': self.volume_status.value,
             'volume_ratio_5d': self.volume_ratio_5d,
             'volume_trend': self.volume_trend,
@@ -165,6 +185,14 @@ class TrendAnalysisResult:
             'rsi_24': self.rsi_24,
             'rsi_status': self.rsi_status.value,
             'rsi_signal': self.rsi_signal,
+            'bb_upper': self.bb_upper,
+            'bb_middle': self.bb_middle,
+            'bb_lower': self.bb_lower,
+            'bb_width': self.bb_width,
+            'bb_position': self.bb_position,
+            'adx': self.adx,
+            'adx_plus_di': self.adx_plus_di,
+            'adx_minus_di': self.adx_minus_di,
         }
 
 
@@ -226,9 +254,11 @@ class StockTrendAnalyzer:
         # 计算均线
         df = self._calculate_mas(df)
 
-        # 计算 MACD 和 RSI
+        # 计算 MACD、RSI、布林带和 ADX
         df = self._calculate_macd(df)
         df = self._calculate_rsi(df)
+        df = self._calculate_bb(df)
+        df = self._calculate_adx(df)
 
         # 获取最新数据
         latest = df.iloc[-1]
@@ -237,6 +267,24 @@ class StockTrendAnalyzer:
         result.ma10 = float(latest['MA10'])
         result.ma20 = float(latest['MA20'])
         result.ma60 = float(latest.get('MA60', 0))
+        result.ma50 = float(latest.get('MA50', 0))
+        result.ma200 = float(latest.get('MA200', 0))
+
+        # 布林带
+        result.bb_upper = float(latest.get('BB_upper', 0))
+        result.bb_middle = float(latest.get('BB_middle', 0))
+        result.bb_lower = float(latest.get('BB_lower', 0))
+        bb_range = result.bb_upper - result.bb_lower
+        result.bb_width = float(latest.get('BB_width', 0))
+        result.bb_position = (
+            (result.current_price - result.bb_lower) / bb_range
+            if bb_range > 0 else 0.5
+        )
+
+        # ADX
+        result.adx = float(latest.get('ADX', 0))
+        result.adx_plus_di = float(latest.get('ADX_plus_DI', 0))
+        result.adx_minus_di = float(latest.get('ADX_minus_DI', 0))
 
         # 1. 趋势判断
         self._analyze_trend(df, result)
@@ -267,10 +315,18 @@ class StockTrendAnalyzer:
         df['MA5'] = df['close'].rolling(window=5).mean()
         df['MA10'] = df['close'].rolling(window=10).mean()
         df['MA20'] = df['close'].rolling(window=20).mean()
+        if len(df) >= 50:
+            df['MA50'] = df['close'].rolling(window=50).mean()
+        else:
+            df['MA50'] = df['MA20']
         if len(df) >= 60:
             df['MA60'] = df['close'].rolling(window=60).mean()
         else:
-            df['MA60'] = df['MA20']  # 数据不足时使用 MA20 替代
+            df['MA60'] = df['MA20']
+        if len(df) >= 200:
+            df['MA200'] = df['close'].rolling(window=200).mean()
+        else:
+            df['MA200'] = df['MA50'] if 'MA50' in df.columns else df['MA20']
         return df
 
     def _calculate_macd(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -335,7 +391,50 @@ class StockTrendAnalyzer:
             df[col_name] = rsi
 
         return df
-    
+
+    def _calculate_bb(self, df: pd.DataFrame, period: int = 20, std_mult: float = 2.0) -> pd.DataFrame:
+        """计算布林带 (Bollinger Bands)"""
+        df = df.copy()
+        df['BB_middle'] = df['close'].rolling(window=period).mean()
+        std = df['close'].rolling(window=period).std()
+        df['BB_upper'] = df['BB_middle'] + std_mult * std
+        df['BB_lower'] = df['BB_middle'] - std_mult * std
+        df['BB_width'] = (df['BB_upper'] - df['BB_lower']) / df['BB_middle'] * 100
+        return df
+
+    def _calculate_adx(self, df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+        """计算 ADX (Average Directional Index)"""
+        df = df.copy()
+        high, low, close = df['high'], df['low'], df['close']
+
+        # True Range
+        tr1 = high - low
+        tr2 = (high - close.shift()).abs()
+        tr3 = (low - close.shift()).abs()
+        df['TR'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+        # Directional Movement
+        up_move = high.diff()
+        down_move = (-low.diff())
+
+        plus_dm = pd.Series(0.0, index=df.index)
+        minus_dm = pd.Series(0.0, index=df.index)
+        plus_dm[(up_move > down_move) & (up_move > 0)] = up_move
+        minus_dm[(down_move > up_move) & (down_move > 0)] = down_move
+
+        # Smoothed values (Wilder's smoothing via EMA)
+        atr = df['TR'].ewm(span=period * 2 - 1, adjust=False).mean()
+        plus_di = 100 * (plus_dm.ewm(span=period * 2 - 1, adjust=False).mean() / atr)
+        minus_di = 100 * (minus_dm.ewm(span=period * 2 - 1, adjust=False).mean() / atr)
+
+        dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+        adx = dx.ewm(span=period * 2 - 1, adjust=False).mean()
+
+        df['ADX'] = adx
+        df['ADX_plus_DI'] = plus_di
+        df['ADX_minus_DI'] = minus_di
+        return df
+
     def _analyze_trend(self, df: pd.DataFrame, result: TrendAnalysisResult) -> None:
         """
         分析趋势状态
@@ -392,19 +491,23 @@ class StockTrendAnalyzer:
     def _calculate_bias(self, result: TrendAnalysisResult) -> None:
         """
         计算乖离率
-        
+
         乖离率 = (现价 - 均线) / 均线 * 100%
-        
+
         严进策略：乖离率超过 5% 不追高
         """
         price = result.current_price
-        
+
         if result.ma5 > 0:
             result.bias_ma5 = (price - result.ma5) / result.ma5 * 100
         if result.ma10 > 0:
             result.bias_ma10 = (price - result.ma10) / result.ma10 * 100
         if result.ma20 > 0:
             result.bias_ma20 = (price - result.ma20) / result.ma20 * 100
+        if result.ma50 > 0:
+            result.bias_ma50 = (price - result.ma50) / result.ma50 * 100
+        if result.ma200 > 0:
+            result.bias_ma200 = (price - result.ma200) / result.ma200 * 100
     
     def _analyze_volume(self, df: pd.DataFrame, result: TrendAnalysisResult) -> None:
         """
@@ -470,7 +573,33 @@ class StockTrendAnalyzer:
         # MA20 作为重要支撑
         if result.ma20 > 0 and price >= result.ma20:
             result.support_levels.append(result.ma20)
-        
+
+        # MA50 作为中期趋势支撑
+        if result.ma50 > 0 and price >= result.ma50:
+            if result.ma50 not in result.support_levels:
+                result.support_levels.append(result.ma50)
+        elif result.ma50 > 0 and price < result.ma50:
+            if result.ma50 not in result.resistance_levels:
+                result.resistance_levels.append(result.ma50)
+
+        # MA200 作为长期牛熊分界
+        if result.ma200 > 0 and price >= result.ma200:
+            if result.ma200 not in result.support_levels:
+                result.support_levels.append(result.ma200)
+        elif result.ma200 > 0 and price < result.ma200:
+            if result.ma200 not in result.resistance_levels:
+                result.resistance_levels.append(result.ma200)
+
+        # 布林带下轨作为支撑
+        if result.bb_lower > 0 and price >= result.bb_lower:
+            if result.bb_lower not in result.support_levels:
+                result.support_levels.append(result.bb_lower)
+
+        # 布林带上轨作为压力
+        if result.bb_upper > 0 and price < result.bb_upper:
+            if result.bb_upper not in result.resistance_levels:
+                result.resistance_levels.append(result.bb_upper)
+
         # 近期高点作为压力
         if len(df) >= 20:
             recent_high = df['high'].iloc[-20:].max()
@@ -753,6 +882,11 @@ class StockTrendAnalyzer:
         Returns:
             格式化的分析文本
         """
+        def _fmt_ma(label, val, bias):
+            if val > 0:
+                return f"   {label}: {val:.2f} (乖离 {bias:+.2f}%)"
+            return f"   {label}: --"
+
         lines = [
             f"=== {result.code} 趋势分析 ===",
             f"",
@@ -762,9 +896,23 @@ class StockTrendAnalyzer:
             f"",
             f"📈 均线数据:",
             f"   现价: {result.current_price:.2f}",
-            f"   MA5:  {result.ma5:.2f} (乖离 {result.bias_ma5:+.2f}%)",
-            f"   MA10: {result.ma10:.2f} (乖离 {result.bias_ma10:+.2f}%)",
-            f"   MA20: {result.ma20:.2f} (乖离 {result.bias_ma20:+.2f}%)",
+            _fmt_ma("MA5  ", result.ma5, result.bias_ma5),
+            _fmt_ma("MA10 ", result.ma10, result.bias_ma10),
+            _fmt_ma("MA20 ", result.ma20, result.bias_ma20),
+            _fmt_ma("MA50 ", result.ma50, result.bias_ma50),
+            _fmt_ma("MA200", result.ma200, result.bias_ma200),
+            f"",
+            f"📊 布林带 (20,2):",
+            f"   上轨: {result.bb_upper:.2f}",
+            f"   中轨: {result.bb_middle:.2f}",
+            f"   下轨: {result.bb_lower:.2f}",
+            f"   带宽: {result.bb_width:.1f}%",
+            f"   位置: {result.bb_position:.2f} (0=下轨, 1=上轨)",
+            f"",
+            f"📊 ADX (14):",
+            f"   ADX: {result.adx:.1f}",
+            f"   +DI: {result.adx_plus_di:.1f}",
+            f"   -DI: {result.adx_minus_di:.1f}",
             f"",
             f"📊 量能分析: {result.volume_status.value}",
             f"   量比(vs5日): {result.volume_ratio_5d:.2f}",

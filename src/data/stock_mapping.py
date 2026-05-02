@@ -104,6 +104,11 @@ STOCK_NAME_MAP = {
     "01299": "友邦保险",
     "00941": "中国移动",
     "00883": "中国海洋石油",
+    # === Commodities & Forex (yfinance-native tickers) ===
+    "XAUUSD=X": "伦敦金 (XAU/USD)",
+    "GC=F": "COMEX黄金期货",
+    "DX-Y.NYB": "美元指数 (DXY)",
+    "SI=F": "COMEX白银期货",
 }
 
 

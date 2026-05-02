@@ -16,6 +16,7 @@ YfinanceFetcher - 兜底数据源 (Priority 4)
 
 import csv
 import logging
+import re
 from datetime import datetime
 from io import StringIO
 from typing import Optional, List, Dict, Any
@@ -74,6 +75,22 @@ class YfinanceFetcher(BaseFetcher):
     name = "YfinanceFetcher"
     priority = int(os.getenv("YFINANCE_PRIORITY", "4"))
 
+    # yfinance-native ticker patterns that should pass through without conversion
+    _YF_NATIVE_RE = re.compile(
+        r"(?:^[A-Z]{3,6}=[A-Z]$)"      # Forex pairs: XAUUSD=X, EURUSD=X
+        r"|(?:^[A-Z]{1,4}=F$)"          # Futures: GC=F, SI=F, CL=F
+        r"|(?:^[A-Z]{1,8}-[A-Z]{1,4}\.[A-Z]{2,3}$)"  # DX-Y.NYB style
+        r"|(?:^\^[A-Z]{1,8}$)"          # Indices: ^GSPC, ^HSI, ^TNX
+    )
+
+    @staticmethod
+    def is_yf_native_ticker(code: str) -> bool:
+        """Return True when *code* is a yfinance-native ticker symbol."""
+        c = (code or "").strip().upper()
+        if not c:
+            return False
+        return bool(YfinanceFetcher._YF_NATIVE_RE.match(c))
+
     def __init__(self):
         """初始化 YfinanceFetcher"""
         pass
@@ -103,6 +120,11 @@ class YfinanceFetcher(BaseFetcher):
             'AAPL'
         """
         code = stock_code.strip().upper()
+
+        # yfinance-native tickers: commodities, forex, futures — pass through as-is
+        if self.is_yf_native_ticker(code):
+            logger.debug(f"识别为 YF 原生代码: {code}")
+            return code
 
         # 美股指数：映射到 Yahoo Finance 符号（如 SPX -> ^GSPC）
         yf_symbol, _ = get_us_index_yf_symbol(code)
@@ -674,10 +696,16 @@ class YfinanceFetcher(BaseFetcher):
                 index_name=index_name,
             )
 
-        # 仅处理美股股票
-        if not self._is_us_stock(stock_code):
-            logger.debug(f"[Yfinance] {stock_code} 不是美股，跳过")
+        # 处理 yfinance 原生代码（商品、外汇、期货）
+        is_yf_native = self.is_yf_native_ticker(stock_code)
+
+        # 仅处理美股股票或 YF 原生代码
+        if not self._is_us_stock(stock_code) and not is_yf_native:
+            logger.debug(f"[Yfinance] {stock_code} 不是美股/YF原生代码，跳过")
             return None
+
+        if is_yf_native:
+            return self._get_yf_native_realtime_quote(stock_code)
 
         try:
             symbol = stock_code.strip().upper()
@@ -765,6 +793,64 @@ class YfinanceFetcher(BaseFetcher):
         except Exception as e:
             logger.warning(f"[Yfinance] 获取美股 {stock_code} 实时行情失败: {e}，尝试 Stooq 兜底")
             return self._get_us_stock_quote_from_stooq(stock_code)
+
+    def _get_yf_native_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
+        """获取 yfinance 原生代码的实时行情（商品、外汇、期货）。"""
+        import yfinance as yf
+
+        symbol = stock_code.strip().upper()
+        ticker = yf.Ticker(symbol)
+
+        name_map = {
+            "XAUUSD=X": "伦敦金 (XAU/USD)",
+            "GC=F": "COMEX黄金期货",
+            "DX-Y.NYB": "美元指数 (DXY)",
+            "SI=F": "COMEX白银期货",
+            "CL=F": "WTI原油期货",
+            "EURUSD=X": "欧元/美元",
+        }
+        display_name = name_map.get(symbol, symbol)
+
+        try:
+            hist = ticker.history(period="2d")
+            if hist.empty:
+                logger.warning(f"[Yfinance] 无法获取 {symbol} 的数据")
+                return None
+            today = hist.iloc[-1]
+            prev = hist.iloc[-2] if len(hist) > 1 else today
+            price = float(today["Close"])
+            prev_close = float(prev["Close"])
+            change_amount = price - prev_close
+            change_pct = (change_amount / prev_close) * 100 if prev_close else 0
+            high = float(today["High"])
+            low = float(today["Low"])
+            amplitude = ((high - low) / prev_close * 100) if prev_close else 0
+            volume = int(today["Volume"]) if "Volume" in today else 0
+
+            return UnifiedRealtimeQuote(
+                code=symbol,
+                name=display_name,
+                source=RealtimeSource.FALLBACK,
+                price=price,
+                change_pct=round(change_pct, 2),
+                change_amount=round(change_amount, 4),
+                volume=volume,
+                amount=None,
+                volume_ratio=None,
+                turnover_rate=None,
+                amplitude=round(amplitude, 2),
+                open_price=float(today["Open"]),
+                high=high,
+                low=low,
+                pre_close=prev_close,
+                pe_ratio=None,
+                pb_ratio=None,
+                total_mv=None,
+                circ_mv=None,
+            )
+        except Exception as e:
+            logger.warning(f"[Yfinance] 获取 {symbol} 实时行情失败: {e}")
+            return None
 
 
 if __name__ == "__main__":

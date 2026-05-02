@@ -946,6 +946,48 @@ class DataFetcherManager:
         is_us = is_us_index or is_us_stock_code(stock_code)
         is_hk = (not is_us) and _is_hk_market(stock_code)
 
+        # 检测 yfinance 原生代码（商品、外汇、期货等）并直接路由
+        from .yfinance_fetcher import YfinanceFetcher
+
+        if YfinanceFetcher.is_yf_native_ticker(stock_code):
+            for attempt, fetcher in enumerate(fetchers, start=1):
+                if fetcher.name != "YfinanceFetcher":
+                    continue
+                try:
+                    logger.info(
+                        f"[数据源尝试 {attempt}/{total_fetchers}] [{fetcher.name}] "
+                        f"YF原生代码 {stock_code} 直接路由..."
+                    )
+                    df = self._call_fetcher_method(
+                        fetcher,
+                        "get_daily_data",
+                        stock_code=stock_code,
+                        start_date=start_date,
+                        end_date=end_date,
+                        days=days,
+                    )
+                    if df is not None and not df.empty:
+                        elapsed = time.time() - request_start
+                        logger.info(
+                            f"[数据源完成] {stock_code} 使用 [{fetcher.name}] 获取成功: "
+                            f"rows={len(df)}, elapsed={elapsed:.2f}s"
+                        )
+                        return df, fetcher.name
+                except Exception as e:
+                    error_type, error_reason = summarize_exception(e)
+                    error_msg = f"[{fetcher.name}] ({error_type}) {error_reason}"
+                    logger.warning(
+                        f"[数据源失败 {attempt}/{total_fetchers}] [{fetcher.name}] {stock_code}: "
+                        f"error_type={error_type}, reason={error_reason}"
+                    )
+                    errors.append(error_msg)
+                break
+
+            error_summary = f"YF原生代码 {stock_code} 获取失败:\n" + "\n".join(errors)
+            elapsed = time.time() - request_start
+            logger.error(f"[数据源终止] {stock_code} 获取失败: elapsed={elapsed:.2f}s\n{error_summary}")
+            raise DataFetchError(error_summary)
+
         # 美股（含美股指数）使用 Longbridge/YFinance 特殊路由；港股走下方通用数据源循环
         if is_us:
             prefer_lb = self._longbridge_preferred() and not is_us_index
@@ -1158,6 +1200,26 @@ class DataFetcherManager:
             return None
 
         # ----------------------------------------------------------
+        # yfinance 原生代码（商品、外汇、期货）— 直接路由到 YfinanceFetcher
+        # ----------------------------------------------------------
+        from .yfinance_fetcher import YfinanceFetcher
+
+        yf_native = raw_stock_code.strip().upper()
+        if YfinanceFetcher.is_yf_native_ticker(yf_native):
+            for f in self._get_fetchers_snapshot():
+                if f.name == "YfinanceFetcher":
+                    try:
+                        if hasattr(f, "_get_yf_native_realtime_quote"):
+                            quote = self._call_fetcher_method(f, "_get_yf_native_realtime_quote", yf_native)
+                            if quote is not None and quote.has_basic_data():
+                                logger.info(f"[实时行情] YF原生 {yf_native} 成功获取")
+                                return quote
+                    except Exception as e:
+                        logger.warning(f"[实时行情] YF原生 {yf_native} 获取失败: {e}")
+                    break
+            return None
+
+        # --------------------------------------------------
         # 美股 (指数 + 个股) / 港股 — 专用双源路由
         #   配置长桥后: Longbridge 首选, YFinance/AkShare 补充
         #   未配置长桥: YFinance/AkShare 首选, Longbridge 补充

@@ -119,6 +119,14 @@ from src.services.system_config_service import SystemConfigService
 async def app_lifespan(app: FastAPI):
     """Initialize and release shared services for the app lifecycle."""
     app.state.system_config_service = SystemConfigService()
+
+    # Sync gold daily CSV on startup (fill gaps)
+    try:
+        from api.v1.endpoints.gold import sync_gold_csv_on_startup
+        sync_gold_csv_on_startup()
+    except Exception:
+        logging.getLogger(__name__).debug("Gold startup sync skipped", exc_info=True)
+
     try:
         yield
     finally:

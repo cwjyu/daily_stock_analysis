@@ -1402,6 +1402,10 @@ def _extract_stock_code(text: str) -> str:
     m = re.search(r'(?<![a-zA-Z])(hk\d{5})(?!\d)', text, re.IGNORECASE)
     if m:
         return m.group(1).upper()
+    # YF-native tickers: forex pairs (XAUUSD=X), futures (GC=F), DX-Y.NYB, indices (^GSPC)
+    m = re.search(r'(?<![a-zA-Z])([A-Z]{3,6}=[A-Z]|[A-Z]{1,4}=F|[A-Z]{1,8}-[A-Z]{1,4}\.[A-Z]{2,3}|\^[A-Z]{1,8})(?![a-zA-Z])', text)
+    if m:
+        return m.group(1)
     # US ticker — require 2+ uppercase letters bounded by non-alpha chars.
     m = re.search(r'(?<![a-zA-Z])([A-Z]{2,5}(?:\.[A-Z]{1,2})?)(?![a-zA-Z])', text)
     if m:
