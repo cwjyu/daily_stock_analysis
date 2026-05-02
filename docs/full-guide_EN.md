@@ -119,7 +119,7 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 | `STOCK_LIST` | Watchlist codes, e.g., `600519,300750,002594` | ✅ |
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) Search API (for news search) | Recommended |
 | `ANSPIRE_API_KEYS` | [Anspire AI Search](https://aisearch.anspire.cn/) Specially optimized for Chinese content (effectively enhances A-share analysis) | Optional |
-| `MINIMAX_API_KEYS` | [MiniMax](https://platform.minimaxi.com/) Coding Plan Web Search (structured search results) | Optional |
+| `MINIMAX_API_KEYS` | [MiniMax](https://platform.minimax.io/) Coding Plan Web Search (structured search results) | Optional |
 | `BOCHA_API_KEYS` | [Bocha Search](https://open.bocha.cn/) Web Search API (Chinese search optimized, supports AI summaries, multiple keys comma-separated) | Optional |
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) Backup search | Optional |
 | `SEARXNG_BASE_URLS` | SearXNG self-hosted instances (quota-free fallback, enable format: json in settings.yml); when empty the app auto-discovers public instances | Optional |
@@ -166,18 +166,18 @@ Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
 
 | Variable | Description | Default | Required |
 |--------|------|--------|:----:|
-| `LITELLM_MODEL` | Primary model, format `provider/model` (e.g. `gemini/gemini-2.5-flash`), recommended | - | No |
+| `LITELLM_MODEL` | Primary model, format `provider/model` (e.g. `gemini/gemini-3.1-pro-preview`), recommended | - | No |
 | `AGENT_LITELLM_MODEL` | Optional Agent-only primary model; when empty it inherits the primary model, and bare names are normalized to `openai/<model>` | - | No |
 | `LITELLM_FALLBACK_MODELS` | Fallback models, comma-separated | - | No |
 | `LLM_CHANNELS` | Channel names (comma-separated), use with `LLM_{NAME}_*`, see [LLM Config Guide](LLM_CONFIG_GUIDE_EN.md) | - | No |
 | `LITELLM_CONFIG` | Advanced model routing YAML path (expert use) | - | No |
 | `GEMINI_API_KEY` | Google Gemini API Key | - | Optional |
-| `GEMINI_MODEL` | Primary model name (legacy, `LITELLM_MODEL` preferred) | `gemini-3-flash-preview` | No |
-| `GEMINI_MODEL_FALLBACK` | Fallback model (legacy) | `gemini-2.5-flash` | No |
+| `GEMINI_MODEL` | Primary model name (legacy, `LITELLM_MODEL` preferred) | `gemini-3.1-pro-preview` | No |
+| `GEMINI_MODEL_FALLBACK` | Fallback model (legacy) | `gemini-3-flash-preview` | No |
 | `OPENAI_API_KEY` | OpenAI-compatible API Key | - | Optional |
 | `OPENAI_BASE_URL` | OpenAI-compatible API endpoint | - | Optional |
 | `OLLAMA_API_BASE` | Ollama local service address (e.g. `http://localhost:11434`), see [LLM Config Guide](LLM_CONFIG_GUIDE_EN.md) | - | Optional |
-| `OPENAI_MODEL` | OpenAI model name (legacy) | `gpt-4o` | Optional |
+| `OPENAI_MODEL` | OpenAI model name (legacy) | `gpt-5.5` | Optional |
 
 > *Note: Configure at least one of `GEMINI_API_KEY`, `OPENAI_API_KEY`, `OLLAMA_API_BASE`, or `LLM_CHANNELS` / `LITELLM_CONFIG`
 
@@ -758,7 +758,7 @@ Configure multiple models, system auto-switches:
 ```bash
 # Gemini (primary)
 GEMINI_API_KEY=xxx
-GEMINI_MODEL=gemini-3-flash-preview
+GEMINI_MODEL=gemini-3.1-pro-preview
 
 # OpenAI compatible (backup)
 OPENAI_API_KEY=xxx
@@ -778,11 +778,11 @@ See [LLM Config Guide](LLM_CONFIG_GUIDE_EN.md). Most users only need to think in
 ```env
 # Primary: 3 Gemini keys rotate; Router switches on 429
 GEMINI_API_KEYS=key1,key2,key3
-LITELLM_MODEL=gemini/gemini-3-flash-preview
+LITELLM_MODEL=gemini/gemini-3.1-pro-preview
 
 # Cross-model fallback: when all primary keys fail, try Claude → GPT
 # Requires ANTHROPIC_API_KEY, OPENAI_API_KEY
-LITELLM_FALLBACK_MODELS=anthropic/claude-3-5-sonnet-20241022,openai/gpt-4o-mini
+LITELLM_FALLBACK_MODELS=anthropic/claude-sonnet-4-6,openai/gpt-5.4-mini
 ```
 
 > ⚠️ `LITELLM_MODEL` must include provider prefix (e.g. `gemini/`, `anthropic/`, `openai/`). Legacy `GEMINI_MODEL` (no prefix) is only used when `LITELLM_MODEL` is not set.
