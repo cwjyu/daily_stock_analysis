@@ -808,6 +808,23 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "validation": {},
         "display_order": 51,
     },
+    "CUSTOM_WEBHOOK_BODY_TEMPLATE": {
+        "title": "Custom Webhook Body Template",
+        "description": (
+            "Optional JSON body template for custom webhooks. Supports $content_json, "
+            "$content, $title_json, and $title placeholders."
+        ),
+        "category": "notification",
+        "data_type": "string",
+        "ui_control": "textarea",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": None,
+        "options": [],
+        "validation": {},
+        "display_order": 52,
+    },
     "WEBHOOK_VERIFY_SSL": {
         "title": "Webhook SSL Verify",
         "description": "Verify HTTPS certificates for webhook requests. Set to false ONLY for self-signed certs in trusted internal networks. WARNING: Disabling allows MITM attacks—do NOT use on public networks.",
@@ -820,7 +837,7 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "default_value": "true",
         "options": [],
         "validation": {},
-        "display_order": 52,
+        "display_order": 53,
     },
     "REPORT_SUMMARY_ONLY": {
         "title": "Report Summary Only",
