@@ -1803,7 +1803,10 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
     },
     "AGENT_EVENT_ALERT_RULES_JSON": {
         "title": "Event Alert Rules",
-        "description": "JSON array of Event Monitor rules loaded by schedule mode for background alert polling.",
+        "description": (
+            "JSON array of Event Monitor rules loaded by schedule mode. "
+            "Supported alert_type values: price_cross, price_change_percent, volume_spike."
+        ),
         "category": "agent",
         "data_type": "json",
         "ui_control": "textarea",

@@ -1007,6 +1007,28 @@ A: Check if Actions is enabled, and if cron expression is correct (note it's UTC
 - `search_stock_news` and `search_comprehensive_intel` persist successful results to `news_intel` on a best-effort basis, reusing the existing URL / fallback-key deduplication logic.
 - `get_realtime_quote` does not use `stock_daily` as a realtime-quote cache and does not write intraday quotes into the daily-bar table; realtime quote caching should use a dedicated realtime store if needed.
 
+## Agent Event Monitor
+
+When `AGENT_EVENT_MONITOR_ENABLED=true`, schedule mode polls the rules in `AGENT_EVENT_ALERT_RULES_JSON` every `AGENT_EVENT_MONITOR_INTERVAL_MINUTES` minutes and sends triggered alerts through the existing notification channels. The runtime currently supports three rule types:
+
+> Compatibility and rollback note: this PR only adds/validates Event Monitor rule fields (including `price_change_percent`) and does not change external model/provider API semantics such as model names, providers, Base URL, LiteLLM, `OPENAI_*`, `DEEPSEEK_*`, or `GEMINI_*` configuration.
+> Rollback is explicit: clear or disable `AGENT_EVENT_MONITOR_ENABLED`/related rule config to restore previous behavior.
+> Evidence is in-repo: `src/agent/events.py` (runtime parsing/validation), `src/services/system_config_service.py` (config validation), `src/core/config_registry.py` (metadata), and regression tests in `tests/test_multi_agent.py` + `tests/test_system_config_service.py`.
+
+| `alert_type` | Direction | Threshold | Description |
+| --- | --- | --- | --- |
+| `price_cross` | `above` / `below` | `price` | Current price crosses a fixed threshold |
+| `price_change_percent` | `up` / `down` | `change_pct` | Intraday change percentage reaches a threshold |
+| `volume_spike` | - | `multiplier` | Latest volume exceeds the recent 20-day average by this multiplier |
+
+Example:
+
+```env
+AGENT_EVENT_MONITOR_ENABLED=true
+AGENT_EVENT_MONITOR_INTERVAL_MINUTES=5
+AGENT_EVENT_ALERT_RULES_JSON=[{"stock_code":"600519","alert_type":"price_cross","direction":"above","price":1800},{"stock_code":"300750","alert_type":"price_change_percent","direction":"down","change_pct":3.0},{"stock_code":"000858","alert_type":"volume_spike","multiplier":2.5}]
+```
+
 ---
 
 For more questions, please [submit an Issue](https://github.com/ZhuLinsen/daily_stock_analysis/issues)
