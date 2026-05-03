@@ -604,32 +604,54 @@ function buildLlmFailureText(result: {
 }
 
 const MANAGED_PROVIDERS = new Set(['gemini', 'vertex_ai', 'anthropic', 'openai', 'deepseek']);
+const LEGACY_PROVIDER_KEYS: Record<string, string[]> = {
+  gemini: ['GEMINI_API_KEYS', 'GEMINI_API_KEY'],
+  vertex_ai: ['GEMINI_API_KEYS', 'GEMINI_API_KEY'],
+  anthropic: ['ANTHROPIC_API_KEYS', 'ANTHROPIC_API_KEY'],
+  openai: ['OPENAI_API_KEYS', 'AIHUBMIX_KEY', 'OPENAI_API_KEY'],
+  deepseek: ['DEEPSEEK_API_KEYS', 'DEEPSEEK_API_KEY'],
+};
+
+function getRuntimeProvider(model: string): string {
+  if (!model) return '';
+  if (!model.includes('/')) return 'openai';
+  return model.split('/', 1)[0].trim().toLowerCase();
+}
 
 function usesDirectEnvProvider(model: string): boolean {
-  if (!model || !model.includes('/')) return false;
-  const provider = model.split('/', 1)[0].trim().toLowerCase();
+  const provider = getRuntimeProvider(model);
   return Boolean(provider) && !MANAGED_PROVIDERS.has(provider);
 }
 
-function isRuntimeModelAvailable(model: string, availableModels: string[]): boolean {
-  return availableModels.includes(model) || usesDirectEnvProvider(model);
+function hasLegacyRuntimeSource(model: string, itemMap: Map<string, string>): boolean {
+  const provider = PROTOCOL_ALIASES[getRuntimeProvider(model)] || getRuntimeProvider(model);
+  if (!provider || !MANAGED_PROVIDERS.has(provider)) {
+    return false;
+  }
+  return (LEGACY_PROVIDER_KEYS[provider] || []).some((key) => (itemMap.get(key) || '').trim().length > 0);
 }
 
-function sanitizeRuntimeConfigForSave(runtimeConfig: RuntimeConfig, availableModels: string[]): RuntimeConfig {
-  if (availableModels.length === 0) {
-    return runtimeConfig;
-  }
+function isRuntimeModelAvailable(model: string, availableModels: string[], itemMap: Map<string, string>): boolean {
+  return availableModels.includes(model)
+    || usesDirectEnvProvider(model)
+    || (availableModels.length === 0 && hasLegacyRuntimeSource(model, itemMap));
+}
 
-  const primaryModel = runtimeConfig.primaryModel && !isRuntimeModelAvailable(runtimeConfig.primaryModel, availableModels)
+function sanitizeRuntimeConfigForSave(
+  runtimeConfig: RuntimeConfig,
+  availableModels: string[],
+  itemMap: Map<string, string>,
+): RuntimeConfig {
+  const primaryModel = runtimeConfig.primaryModel && !isRuntimeModelAvailable(runtimeConfig.primaryModel, availableModels, itemMap)
     ? ''
     : runtimeConfig.primaryModel;
-  const agentPrimaryModel = runtimeConfig.agentPrimaryModel && !isRuntimeModelAvailable(runtimeConfig.agentPrimaryModel, availableModels)
+  const agentPrimaryModel = runtimeConfig.agentPrimaryModel && !isRuntimeModelAvailable(runtimeConfig.agentPrimaryModel, availableModels, itemMap)
     ? ''
     : runtimeConfig.agentPrimaryModel;
-  const visionModel = runtimeConfig.visionModel && !isRuntimeModelAvailable(runtimeConfig.visionModel, availableModels)
+  const visionModel = runtimeConfig.visionModel && !isRuntimeModelAvailable(runtimeConfig.visionModel, availableModels, itemMap)
     ? ''
     : runtimeConfig.visionModel;
-  const fallbackModels = runtimeConfig.fallbackModels.filter((model) => isRuntimeModelAvailable(model, availableModels));
+  const fallbackModels = runtimeConfig.fallbackModels.filter((model) => isRuntimeModelAvailable(model, availableModels, itemMap));
 
   return {
     ...runtimeConfig,
@@ -791,6 +813,7 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
   const initialChannels = useMemo(() => parseChannelsFromItems(items), [items]);
   const initialNames = useMemo(() => initialChannels.map((channel) => channel.name), [initialChannels]);
   const initialRuntimeConfig = useMemo(() => parseRuntimeConfigFromItems(items), [items]);
+  const savedItemMap = useMemo(() => new Map(items.map((item) => [item.key.toUpperCase(), item.value])), [items]);
   const hasLitellmConfig = useMemo(
     () => items.some((item) => item.key === 'LITELLM_CONFIG' && item.value.trim().length > 0),
     [items],
@@ -990,31 +1013,29 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
     }
 
     const runtimeConfigForSave = managesRuntimeConfig
-      ? sanitizeRuntimeConfigForSave(runtimeConfig, availableModels)
+      ? sanitizeRuntimeConfigForSave(runtimeConfig, availableModels, savedItemMap)
       : runtimeConfig;
     if (!runtimeConfigsAreEqual(runtimeConfigForSave, runtimeConfig)) {
       setRuntimeConfig(runtimeConfigForSave);
     }
 
-    if (managesRuntimeConfig && availableModels.length > 0) {
+    if (managesRuntimeConfig) {
       const invalidPrimaryModel = runtimeConfigForSave.primaryModel
-        && !availableModels.includes(runtimeConfigForSave.primaryModel)
-        && !usesDirectEnvProvider(runtimeConfigForSave.primaryModel);
+        && !isRuntimeModelAvailable(runtimeConfigForSave.primaryModel, availableModels, savedItemMap);
       if (invalidPrimaryModel) {
         setSaveMessage({ type: 'local-error', text: '当前主模型不在已启用渠道的模型列表中，请重新选择。' });
         return;
       }
 
       const invalidAgentPrimaryModel = runtimeConfigForSave.agentPrimaryModel
-        && !availableModels.includes(runtimeConfigForSave.agentPrimaryModel)
-        && !usesDirectEnvProvider(runtimeConfigForSave.agentPrimaryModel);
+        && !isRuntimeModelAvailable(runtimeConfigForSave.agentPrimaryModel, availableModels, savedItemMap);
       if (invalidAgentPrimaryModel) {
         setSaveMessage({ type: 'local-error', text: '当前 Agent 主模型不在已启用渠道的模型列表中，请重新选择。' });
         return;
       }
 
       const invalidFallbackModel = runtimeConfigForSave.fallbackModels.some(
-        (model) => !availableModels.includes(model) && !usesDirectEnvProvider(model),
+        (model) => !isRuntimeModelAvailable(model, availableModels, savedItemMap),
       );
       if (invalidFallbackModel) {
         setSaveMessage({ type: 'local-error', text: '存在无效的备选模型，请重新选择。' });
@@ -1022,8 +1043,7 @@ export const LLMChannelEditor: React.FC<LLMChannelEditorProps> = ({
       }
 
       const invalidVisionModel = runtimeConfigForSave.visionModel
-        && !availableModels.includes(runtimeConfigForSave.visionModel)
-        && !usesDirectEnvProvider(runtimeConfigForSave.visionModel);
+        && !isRuntimeModelAvailable(runtimeConfigForSave.visionModel, availableModels, savedItemMap);
       if (invalidVisionModel) {
         setSaveMessage({ type: 'local-error', text: '当前 Vision 模型不在已启用渠道的模型列表中，请重新选择。' });
         return;
