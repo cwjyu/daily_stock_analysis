@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 - [测试] 补齐 AI 配置页与 task_queue 的 LLM 运行时清理/同步回归证据：恢复渠道模型时保留 fallback、编辑模型列表期间不静默清空运行时选择，渠道无可用模型时清理失效 runtime 引用，并覆盖 legacy key 与 `cohere/*`、`google/*`、`xai/*` 直连 provider 保留语义；验收项明确包含 `tests/test_task_queue_config_sync.py`。
+- [测试] Web LLM 配置检测补充细分错误分类，并新增显式触发的 JSON/tools/vision/stream 运行时 smoke；默认测试和保存流程不变，检测结果仅作为当前配置的一次 best-effort 诊断。
 - [新功能] 自定义 Webhook 支持 `CUSTOM_WEBHOOK_BODY_TEMPLATE` JSON body 模板，便于适配 AstrBot、NapCat 和自建推送服务。
 - [新功能] 大盘复盘结构化区块新增大盘红绿灯结论，基于盘面温度输出 green/yellow/red、核心原因和操作建议。
 - [修复] 统一持仓快照输出现价/市值/浮盈亏/收益率与价格元信息，并为 LLM 渠道测试补充结构化诊断与设置页排障提示。
@@ -29,8 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [chore] 抽出 Web LLM provider preset 单一模板数据源，保持现有配置保存语义不变。
 - [改进] 补齐 LLM provider channel 在 GitHub Actions 中的显式映射，并同步 `.env` 示例与配置文档。
 - [改进] Web LLM 渠道编辑器展示 provider 能力标签、官方来源链接和配置注意事项提示；这些标签仅用于配置参考，不代表运行时能力已验证通过。
-- [改进] Web LLM 配置检测补充细分错误分类，并新增显式触发的 JSON/tools/vision/stream 运行时 smoke；默认测试和保存流程不变，检测结果仅作为当前配置的一次 best-effort 诊断。
 - [新功能] 支持 `ANSPIRE_API_KEYS` 默认接入 Anspire OpenAI-compatible 大模型网关，并在 LLM 渠道编辑器补充 Anspire Open 预设。
+- [文档] 本次变更为文档/治理同步，不包含运行时能力、CI 配置、前端预设或测试逻辑的新增与修改，Anspire / AIHubMix / SerpAPI 配置说明仅整理现有能力口径。
+- [文档] 本轮仅做 README、DEPLOY 与 full-guide 的内容同步与排序调整，并对外链/口径差异进行统一，补齐 PR 一致性说明。
+- [文档] 为本轮评审一致性，新增/调整条目不作为 runtime、测试回归或兼容性变更依据。
 
 ## [3.14.2] - 2026-04-30
 
