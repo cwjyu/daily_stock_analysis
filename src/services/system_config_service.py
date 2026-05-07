@@ -2558,7 +2558,7 @@ class SystemConfigService:
     @staticmethod
     def _classify_llm_http_error(status_code: int, error_text: str) -> _LLMDiagnostic:
         lowered = (error_text or "").lower()
-        if "model" in lowered and any(token in lowered for token in ("not authorized", "not allowed", "access denied", "permission denied")):
+        if SystemConfigService._has_model_access_denied_signal(error_text or ""):
             return _LLMDiagnostic(
                 "model_not_found",
                 False,
@@ -2633,6 +2633,30 @@ class SystemConfigService:
         return False
 
     @staticmethod
+    def _has_model_access_denied_signal(text: str) -> bool:
+        lowered = text.lower()
+        if "model" not in lowered:
+            return False
+
+        # Best-effort classifier for observed provider messages. Keep it gated by
+        # an explicit "model" mention plus access/disabled/unavailable signals so
+        # unrelated provider-specific failures continue to use the fallback path.
+        access_denied_tokens = (
+            "not authorized",
+            "not allowed",
+            "access denied",
+            "permission denied",
+            "model disabled",
+            "model is disabled",
+            "disabled model",
+            "model has been disabled",
+            "model not enabled",
+            "model not available",
+            "model is not available",
+        )
+        return any(token in lowered for token in access_denied_tokens)
+
+    @staticmethod
     def _has_provider_prefix_mismatch_signal(text: str) -> bool:
         lowered = text.lower()
         mismatch_tokens = (
@@ -2679,7 +2703,7 @@ class SystemConfigService:
                 "Configured model prefix does not match this channel",
                 "provider_prefix_mismatch",
             )
-        if "model" in text and any(token in text for token in ("not authorized", "not allowed", "access denied", "permission denied")):
+        if SystemConfigService._has_model_access_denied_signal(str(exc)):
             return _LLMDiagnostic(
                 "model_not_found",
                 False,

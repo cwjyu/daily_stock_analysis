@@ -1409,6 +1409,8 @@ class SystemConfigServiceTestCase(unittest.TestCase):
             (Exception("TLS certificate verify failed"), "network_error", "tls_error"),
             (Exception("Connection refused"), "network_error", "connection_refused"),
             (Exception("model gpt-4o is not authorized for this account"), "model_not_found", "model_access_denied"),
+            (Exception("litellm.APIError: APIError: OpenAIException - Model disabled."), "model_not_found", "model_access_denied"),
+            (Exception("Model is disabled for this account"), "model_not_found", "model_access_denied"),
             (Exception("LLM Provider NOT provided for model foo"), "model_not_found", "provider_prefix_mismatch"),
         ]
 
@@ -1427,6 +1429,10 @@ class SystemConfigServiceTestCase(unittest.TestCase):
                 self.assertFalse(payload["success"])
                 self.assertEqual(payload["error_code"], error_code)
                 self.assertEqual(payload["details"]["reason"], reason)
+                if reason == "model_access_denied":
+                    self.assertFalse(payload["retryable"])
+                    self.assertEqual(payload["details"]["model"], "openai/gpt-4o-mini")
+                    self.assertEqual(payload["resolved_model"], "openai/gpt-4o-mini")
 
     def test_test_llm_channel_reports_comma_only_api_key_as_missing(self) -> None:
         payload = self.service.test_llm_channel(
