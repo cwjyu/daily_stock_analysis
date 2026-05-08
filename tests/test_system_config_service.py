@@ -1405,12 +1405,26 @@ class SystemConfigServiceTestCase(unittest.TestCase):
             (Exception("account balance insufficient"), "quota", "insufficient_balance"),
             (RateLimitError("account balance insufficient"), "quota", "insufficient_balance"),
             (RateLimitError("insufficient_quota"), "quota", "quota_exceeded"),
+            (Exception("account balance insufficient; your request was blocked"), "quota", "insufficient_balance"),
+            (RateLimitError("rate limit: your request was blocked by policy"), "quota", "rate_limit"),
             (Exception("DNS lookup failed"), "network_error", "dns_error"),
             (Exception("TLS certificate verify failed"), "network_error", "tls_error"),
             (Exception("Connection refused"), "network_error", "connection_refused"),
+            (Exception("connection request was blocked by firewall"), "network_error", "network_error"),
+            (Exception("connection blocked by policy"), "network_error", "network_error"),
+            (Exception("request blocked by firewall"), "network_error", "network_error"),
+            (Exception("blocked"), "network_error", "unknown_error"),
             (Exception("model gpt-4o is not authorized for this account"), "model_not_found", "model_access_denied"),
             (Exception("litellm.APIError: APIError: OpenAIException - Model disabled."), "model_not_found", "model_access_denied"),
             (Exception("Model is disabled for this account"), "model_not_found", "model_access_denied"),
+            (
+                Exception("litellm.APIError: APIError: OpenAIException - Your request was blocked."),
+                "request_blocked",
+                "provider_blocked",
+            ),
+            (Exception("Forbidden: your request was blocked by content policy"), "request_blocked", "provider_blocked"),
+            (Exception("blocked by policy"), "request_blocked", "provider_blocked"),
+            (Exception("moderation_blocked"), "request_blocked", "provider_blocked"),
             (Exception("LLM Provider NOT provided for model foo"), "model_not_found", "provider_prefix_mismatch"),
         ]
 
@@ -1429,7 +1443,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
                 self.assertFalse(payload["success"])
                 self.assertEqual(payload["error_code"], error_code)
                 self.assertEqual(payload["details"]["reason"], reason)
-                if reason == "model_access_denied":
+                if reason in {"model_access_denied", "provider_blocked"}:
                     self.assertFalse(payload["retryable"])
                     self.assertEqual(payload["details"]["model"], "openai/gpt-4o-mini")
                     self.assertEqual(payload["resolved_model"], "openai/gpt-4o-mini")
@@ -1494,8 +1508,14 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         billing_rate_limit_response.json.return_value = {"error": {"message": "account balance insufficient"}}
         quota_exceeded_response = Mock(ok=False, status_code=429, text="insufficient_quota")
         quota_exceeded_response.json.return_value = {"error": {"message": "insufficient_quota"}}
+        quota_blocked_response = Mock(ok=False, status_code=403, text="account balance insufficient; your request was blocked")
+        quota_blocked_response.json.return_value = {"error": {"message": "account balance insufficient; your request was blocked"}}
         rate_limit_response = Mock(ok=False, status_code=429, text="too many requests")
         rate_limit_response.json.return_value = {"error": {"message": "too many requests"}}
+        blocked_response = Mock(ok=False, status_code=403, text="Forbidden: your request was blocked by content policy")
+        blocked_response.json.return_value = {"error": {"message": "Forbidden: your request was blocked by content policy"}}
+        connection_blocked_response = Mock(ok=False, status_code=403, text="connection blocked by policy")
+        connection_blocked_response.json.return_value = {"error": {"message": "connection blocked by policy"}}
         invalid_json_response = Mock(ok=True, status_code=200, text="<html>bad gateway</html>")
         invalid_json_response.json.side_effect = ValueError("invalid json")
 
@@ -1505,7 +1525,10 @@ class SystemConfigServiceTestCase(unittest.TestCase):
             (billing_response, "quota", "model_discovery", True, "insufficient_balance"),
             (billing_rate_limit_response, "quota", "model_discovery", True, "insufficient_balance"),
             (quota_exceeded_response, "quota", "model_discovery", True, "quota_exceeded"),
+            (quota_blocked_response, "quota", "model_discovery", True, "insufficient_balance"),
             (rate_limit_response, "quota", "model_discovery", True, "rate_limit"),
+            (blocked_response, "request_blocked", "model_discovery", False, "provider_blocked"),
+            (connection_blocked_response, "network_error", "model_discovery", True, "network_error"),
             (invalid_json_response, "format_error", "response_parse", False, "non_json"),
         ]:
             with self.subTest(error_code=error_code):
