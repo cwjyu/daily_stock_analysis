@@ -1367,6 +1367,19 @@ class SystemConfigService:
                 )
             )
 
+        startup_only_bind_keys = submitted_keys & {
+            "WEBUI_HOST",
+            "WEBUI_PORT",
+        }
+        if startup_only_bind_keys:
+            warnings.append(
+                (
+                    f"{', '.join(sorted(startup_only_bind_keys))} 已写入 .env。"
+                    "这些属于启动期监听配置：当前已运行的 WebUI/API 进程不会因为本次保存重新绑定监听地址或端口；"
+                    "请重启当前进程、Docker 容器或服务管理器后生效。"
+                )
+            )
+
         return warnings
 
     @staticmethod

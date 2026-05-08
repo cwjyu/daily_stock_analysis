@@ -1724,6 +1724,27 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertIn("以 schedule 模式重新启动后生效", schedule_warning)
         self.assertNotIn("它属于启动期单次运行配置", schedule_warning)
 
+    def test_update_appends_webui_bind_restart_warning(self) -> None:
+        response = self.service.update(
+            config_version=self.manager.get_config_version(),
+            items=[
+                {"key": "WEBUI_HOST", "value": "0.0.0.0"},
+                {"key": "WEBUI_PORT", "value": "18000"},
+            ],
+            reload_now=True,
+        )
+
+        self.assertTrue(response["success"])
+        bind_warning = next(
+            warning
+            for warning in response["warnings"]
+            if "WEBUI_HOST" in warning and "WEBUI_PORT" in warning
+        )
+
+        self.assertIn("启动期监听配置", bind_warning)
+        self.assertIn("不会因为本次保存重新绑定监听地址或端口", bind_warning)
+        self.assertIn("重启当前进程、Docker 容器或服务管理器后生效", bind_warning)
+
     def test_update_warns_when_runtime_model_references_are_cleared(self) -> None:
         self._rewrite_env(
             "STOCK_LIST=600519,000001",
