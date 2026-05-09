@@ -643,14 +643,31 @@ Supports any POST JSON Webhook, including:
 Set `CUSTOM_WEBHOOK_URLS`, separate multiple with commas.
 
 If AstrBot, NapCat, or a self-hosted service requires a custom request body, set
-`CUSTOM_WEBHOOK_BODY_TEMPLATE`. The rendered value must be a JSON object. Prefer
-`$content_json` so newlines and quotes stay valid JSON:
+`CUSTOM_WEBHOOK_BODY_TEMPLATE`. This is a global template and is rendered before
+URL auto-detected payloads such as Bark, Slack, or Discord. If the rendered value
+is not a JSON object, DSA falls back to the default payload. Prefer
+`$content_json` / `$title_json` so newlines and quotes stay valid JSON:
 
 ```env
 CUSTOM_WEBHOOK_BODY_TEMPLATE={"msg_type":"text","content":$content_json}
 ```
 
 Available placeholders: `$content_json`, `$content`, `$title_json`, `$title`.
+Raw `$content` / `$title` are not JSON-escaped, so quotes or newlines can make
+the template invalid and trigger fallback.
+
+When using Bark with a global template, include the Bark body explicitly:
+
+```env
+CUSTOM_WEBHOOK_BODY_TEMPLATE={"title":$title_json,"body":$content_json,"group":"stock"}
+```
+
+NapCat / OneBot examples must be adjusted for your actual endpoint, `user_id`,
+or `group_id`:
+
+```env
+CUSTOM_WEBHOOK_BODY_TEMPLATE={"user_id":123456,"message":$content_json}
+```
 
 ### Discord
 
