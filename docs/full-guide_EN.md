@@ -1000,7 +1000,7 @@ python main.py --serve-only --host 0.0.0.0 --port 8888
 | Type | Format | Examples |
 |------|------|------|
 | A-shares | 6-digit number | `600519`, `000001`, `300750` |
-| BSE (Beijing) | 8/4/92 prefix, 6-digit | `920748`, `838163`, `430047` |
+| BSE (Beijing) | 8/4/92 prefix, 6-digit; supports `BJ` prefix or `.BJ` suffix | `920748`, `BJ920493`, `920493.BJ` |
 | HK stocks | hk + 5-digit number | `hk00700`, `hk09988` |
 
 ### Notes
