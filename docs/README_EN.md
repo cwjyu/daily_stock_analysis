@@ -17,7 +17,7 @@
 
 Analyze your watchlist daily -> generate a decision dashboard -> push to Telegram / Discord / Slack / Email / WeChat Work / Feishu.
 
-[**Key Features**](#-key-features) · [**Quick Start**](#-quick-start) · [**Sample Output**](#-sample-output) · [**Full Guide**](./full-guide_EN.md) · [**FAQ**](./FAQ_EN.md) · [**Changelog**](./CHANGELOG.md)
+[**Key Features**](#-key-features) · [**Quick Start**](#-quick-start) · [**Sample Output**](#-sample-output) · [**Documentation Index**](./INDEX_EN.md) · [**Full Guide**](./full-guide_EN.md) · [**FAQ**](./FAQ_EN.md) · [**Changelog**](./CHANGELOG.md)
 
 > This PR-doc update is documentation-only and does not introduce runtime implementation changes. Provider recommendations for Anspire / AIHubMix / SerpAPI reflect existing runtime capabilities and configuration semantics.
 
@@ -240,31 +240,35 @@ DSA focuses on daily analysis reports. These sibling projects cover stock screen
 - [AlphaSift](https://github.com/ZhuLinsen/alphasift): multi-factor stock screening and full-market scanning for building candidate watchlists.
 - [AlphaEvo](https://github.com/ZhuLinsen/alphaevo): strategy backtesting and self-evolution experiments for validating rules and iteratively exploring strategy parameters and combinations.
 
-## 🗺️ Roadmap
+## 📞 Contact
 
-See supported features and release notes in the [Changelog](./CHANGELOG.md). Suggestions are welcome through [GitHub Issues](https://github.com/ZhuLinsen/daily_stock_analysis/issues).
-
-> UI pages are still being polished. Please report style, interaction, or compatibility issues through Issues or Pull Requests.
-
----
-
-## ☕ Support the Project
-
-| Alipay | WeChat Pay | Xiaohongshu |
-| :---: | :---: | :---: |
-| <img src="../sources/alipay.jpg" width="200" alt="Alipay"> | <img src="../sources/wechatpay.jpg" width="200" alt="WeChat Pay"> | <img src="../sources/xiaohongshu.png" width="200" alt="Xiaohongshu"> |
+<table>
+  <tr>
+    <td width="92" valign="top"><strong>Email</strong></td>
+    <td valign="top">
+      <a href="mailto:zhuls345@gmail.com">zhuls345@gmail.com</a><br>
+      Custom development, private deployment, and integration work
+    </td>
+    <td align="center" rowspan="3" valign="middle" width="148">
+      <a href="http://xhslink.com/m/tU520DWCKT" target="_blank"><img src="../sources/xiaohongshu_tick.jpg" width="112" alt="Xiaohongshu QR code"></a><br>
+      <sub>Follow on Xiaohongshu</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="92" valign="top"><strong>Xiaohongshu</strong></td>
+    <td valign="top"><a href="http://xhslink.com/m/tU520DWCKT">Follow on Xiaohongshu</a></td>
+  </tr>
+  <tr>
+    <td width="92" valign="top"><strong>Feedback</strong></td>
+    <td valign="top"><a href="https://github.com/ZhuLinsen/daily_stock_analysis/issues">GitHub Issues</a> · <a href="https://github.com/ZhuLinsen/daily_stock_analysis/discussions">Discussions</a></td>
+  </tr>
+</table>
 
 ## 📄 License
 
 [MIT License](../LICENSE) © 2026 ZhuLinsen
 
 If you use or build on this project, attribution with a link back to this repository is appreciated.
-
-## 📞 Contact
-
-- GitHub Issues: [Report bugs or request features](https://github.com/ZhuLinsen/daily_stock_analysis/issues)
-- Discussions: [Join discussions](https://github.com/ZhuLinsen/daily_stock_analysis/discussions)
-- Email: zhuls345@gmail.com (sponsorship, custom development, private deployment, and integration work)
 
 ## ⭐ Star History
 
