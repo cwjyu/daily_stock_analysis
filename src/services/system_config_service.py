@@ -1620,6 +1620,31 @@ class SystemConfigService:
                 }
             )
 
+        if "allowed_values" in validation and value:
+            delimiter = validation.get("delimiter")
+            raw_values = value.split(delimiter) if delimiter else [value]
+            allowed_values = {str(item).strip().lower() for item in validation["allowed_values"]}
+            invalid_values = []
+            seen_invalid = set()
+            for raw_item in raw_values:
+                item = raw_item.strip().lower()
+                if not item:
+                    continue
+                if item not in allowed_values and item not in seen_invalid:
+                    invalid_values.append(item)
+                    seen_invalid.add(item)
+            if invalid_values:
+                issues.append(
+                    {
+                        "key": key,
+                        "code": "invalid_allowed_value",
+                        "message": "Value contains unsupported item(s)",
+                        "severity": "error",
+                        "expected": ",".join(str(item) for item in validation["allowed_values"]),
+                        "actual": ", ".join(invalid_values),
+                    }
+                )
+
         if validation.get("item_type") == "url":
             delimiter = validation.get("delimiter", ",")
             values = [item.strip() for item in value.split(delimiter)] if validation.get("multi_value") else [value.strip()]

@@ -1867,7 +1867,11 @@ class StockAnalysisPipeline:
                     report_content = self.notifier.generate_single_stock_report(result)
                     logger.info(f"[{stock_code}] 使用精简报告格式")
 
-                if self.notifier.send(report_content, email_stock_codes=[stock_code]):
+                if self.notifier.send(
+                    report_content,
+                    email_stock_codes=[stock_code],
+                    route_type="report",
+                ):
                     logger.info(f"[{stock_code}] 单股推送成功")
                 else:
                     logger.warning(f"[{stock_code}] 单股推送失败")
@@ -1913,6 +1917,7 @@ class StockAnalysisPipeline:
             # 推送通知
             if self.notifier.is_available():
                 channels = self.notifier.get_available_channels()
+                channels = self.notifier.get_channels_for_route("report", channels=channels)
                 context_success = self.notifier.send_to_context(report)
 
                 # Issue #455: Markdown 转图片（与 notification.send 逻辑一致）

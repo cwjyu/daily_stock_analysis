@@ -107,6 +107,7 @@ class MarketCommand(BotCommand):
                         notifier.send(
                             "🎯 大盘复盘\n\n今日相关市场休市，已跳过大盘复盘。",
                             email_send_to_all=True,
+                            route_type="report",
                         )
                     return
 

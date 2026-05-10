@@ -521,7 +521,7 @@ def run_full_analysis(
             if parts:
                 combined_content = "\n\n---\n\n".join(parts)
                 if pipeline.notifier.is_available():
-                    if pipeline.notifier.send(combined_content, email_send_to_all=True):
+                    if pipeline.notifier.send(combined_content, email_send_to_all=True, route_type="report"):
                         logger.info("已合并推送（个股+大盘复盘）")
                     else:
                         logger.warning("合并推送失败")
@@ -572,7 +572,10 @@ def run_full_analysis(
                     logger.info(f"飞书云文档创建成功: {doc_url}")
                     # 可选：将文档链接也推送到群里
                     if not args.no_notify:
-                        pipeline.notifier.send(f"[{now.strftime('%Y-%m-%d %H:%M')}] 复盘文档创建成功: {doc_url}")
+                        pipeline.notifier.send(
+                            f"[{now.strftime('%Y-%m-%d %H:%M')}] 复盘文档创建成功: {doc_url}",
+                            route_type="report",
+                        )
 
         except Exception as e:
             logger.error(f"飞书文档生成失败: {e}")
