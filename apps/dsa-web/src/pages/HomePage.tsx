@@ -1,6 +1,7 @@
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { systemConfigApi } from '../api/systemConfig';
 import { ApiErrorAlert, ConfirmDialog, Button, EmptyState, InlineAlert } from '../components/common';
 import { DashboardStateBlock } from '../components/dashboard';
 import { StockAutocomplete } from '../components/StockAutocomplete';
@@ -8,12 +9,14 @@ import { HistoryList } from '../components/history';
 import { ReportMarkdown, ReportSummary } from '../components/report';
 import { TaskPanel } from '../components/tasks';
 import { useDashboardLifecycle, useHomeDashboardState } from '../hooks';
+import type { SetupStatusResponse } from '../types/systemConfig';
 import { getReportText, normalizeReportLanguage } from '../utils/reportLanguage';
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [setupStatus, setSetupStatus] = useState<SetupStatusResponse | null>(null);
 
   const {
     query,
@@ -55,8 +58,38 @@ const HomePage: React.FC = () => {
   useEffect(() => {
     document.title = '每日选股分析 - DSA';
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    systemConfigApi.getSetupStatus()
+      .then((status) => {
+        if (active) {
+          setSetupStatus(status);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setSetupStatus(null);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const reportLanguage = normalizeReportLanguage(selectedReport?.meta.reportLanguage);
   const reportText = getReportText(reportLanguage);
+  const setupNeedsAction = setupStatus ? !setupStatus.isComplete : false;
+  const setupMissingLabels = useMemo(() => {
+    if (!setupStatus) {
+      return '';
+    }
+    const requiredNeedsAction = setupStatus.checks
+      .filter((check) => check.required && check.status === 'needs_action')
+      .map((check) => check.title);
+    return requiredNeedsAction.slice(0, 3).join('、');
+  }, [setupStatus]);
 
   useDashboardLifecycle({
     loadInitialHistory,
@@ -232,6 +265,31 @@ const HomePage: React.FC = () => {
                 className="rounded-xl px-3 py-2 text-xs shadow-none"
               />
             ) : null}
+          </div>
+        ) : null}
+
+        {setupNeedsAction ? (
+          <div className="px-3 pb-2 md:px-4">
+            <InlineAlert
+              variant="warning"
+              title="基础配置未完成"
+              message={
+                setupMissingLabels
+                  ? `还缺少 ${setupMissingLabels}，完成后即可开始最小可用分析。`
+                  : '还缺少基础配置，完成后即可开始最小可用分析。'
+              }
+              action={(
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => navigate('/settings')}
+                >
+                  去配置
+                </Button>
+              )}
+              className="rounded-xl px-3 py-2 text-xs shadow-none"
+            />
           </div>
         ) : null}
 

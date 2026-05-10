@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [文档] 本次决策稳定性与提示词约束改动仅保持运行时模型/provider/Base URL/发布语义不变，不改动配置持久化与环境语义；但涉及 `src/analyzer.py`、`src/core/pipeline.py`、`src/report_language.py` 与 `src/agent` 相关决策后处理/提示词路径的运行时行为，请回归验证决策落盘与报告口径映射。
 - [文档] 新增中文文档中心并同步英文索引，补齐快速开始、配置、使用专题、部署打包、参考开发等项目文档入口。
 - [文档] 调整 README 联系与合作区域。
+- [改进] Web 首页接入首次启动配置状态，基础配置未完成时提示缺口并引导进入系统设置。
 
 ## [3.15.0] - 2026-05-05
 
