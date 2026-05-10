@@ -27,7 +27,13 @@ from src.storage import get_db
 from data_provider import DataFetcherManager
 from data_provider.base import normalize_stock_code
 from data_provider.realtime_types import ChipDistribution
-from src.analyzer import GeminiAnalyzer, AnalysisResult, fill_chip_structure_if_needed, fill_price_position_if_needed
+from src.analyzer import (
+    GeminiAnalyzer,
+    AnalysisResult,
+    fill_chip_structure_if_needed,
+    fill_price_position_if_needed,
+    stabilize_decision_with_structure,
+)
 from src.data.stock_mapping import STOCK_NAME_MAP
 from src.notification import NotificationService, NotificationChannel
 from src.report_language import (
@@ -495,6 +501,7 @@ class StockAnalysisPipeline:
             # Step 7.7: price_position fallback
             if result:
                 fill_price_position_if_needed(result, trend_result, realtime_quote)
+                stabilize_decision_with_structure(result, trend_result, fundamental_context)
 
             # Step 8: 保存分析历史记录
             if result and result.success:
@@ -853,6 +860,11 @@ class StockAnalysisPipeline:
             # price_position fallback (same as non-agent path Step 7.7)
             if result:
                 fill_price_position_if_needed(result, trend_result, realtime_quote)
+                realtime_data = initial_context.get("realtime_quote", {})
+                if isinstance(realtime_data, dict):
+                    result.current_price = realtime_data.get("price")
+                    result.change_pct = realtime_data.get("change_pct")
+                stabilize_decision_with_structure(result, trend_result, fundamental_context)
 
             resolved_stock_name = result.name if result and result.name else stock_name
 

@@ -860,6 +860,13 @@ You can tune the behavior in `.env`:
 
 ---
 
+## Decision Actionability
+
+Single-stock reports calibrate operation advice with support/resistance, volume/chip context, main-force capital flow, and risk events. This reduces direct buy/sell flips caused only by one-day price movement or score thresholds. When price is between support and resistance and capital flow is unclear, the report prefers neutral actionable wording such as hold, range-bound watch, or shakeout watch. Buy calls require support confirmation or a valid resistance breakout with volume/capital-flow confirmation; sell/reduce calls require support failure, sustained outflow, or clearly elevated risk.
+This post-processing update only adjusts advisory wording and stability logic and does not change the configured LLM model/provider routing semantics (including LiteLLM, providers, or API model settings).
+Compatibility check result: decision operability and runtime post-processing paths are changed, while model/provider/API configuration and persistence semantics remain unchanged; the compatibility boundary is now in analysis/pipeline/agent intent inference and stabilization mapping.
+Verification trail: this PR updates runtime behavior in `src/analyzer.py`, `src/core/pipeline.py`, `src/core/backtest_engine.py`, `src/report_language.py`, and `src/agent` decision-path modules (with corresponding tests in `tests/test_backtest_engine.py`, `tests/test_analyzer_news_prompt.py`, `tests/test_decision_stability.py`, and `tests/test_agent_pipeline.py`); it does not add/remove runtime config fields or config-cleanup logic in `src/config.py` or persistence code paths.
+
 ## Backtesting
 
 The backtesting module automatically validates historical AI analysis records against actual price movements, evaluating the accuracy of analysis recommendations.
@@ -878,7 +885,7 @@ The backtesting module automatically validates historical AI analysis records ag
 |-----------------|----------|-------------------|---------------|
 | Buy / Add / Strong Buy | long | up | Return >= neutral band |
 | Sell / Reduce / Strong Sell | cash | down | Decline >= neutral band |
-| Hold | long | not_down | No significant decline |
+| Hold / Hold and Watch / Range-bound Watch / Shakeout Watch / Hold and watch | long | not_down | No significant decline |
 | Wait / Observe | cash | flat | Price within neutral band |
 
 ### Configuration
