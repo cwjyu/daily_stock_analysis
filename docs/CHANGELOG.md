@@ -27,10 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] 修正分析 API 对北交所 `BJ` 前缀与 `.BJ` 后缀股票代码的校验，保持前端自动补全与 Tushare `ts_code` 调用格式一致。
 - [新功能] 新增通知路由策略，支持按 report、alert、system_error 将通知收窄到指定已配置渠道。
 - [修复] 大盘复盘“近三日催化线索”改为明确展示摘要片段、来源日期和 URL，避免把搜索摘要截断内容误呈现为完整事件。
+- [新功能] Web 首页新增“大盘复盘”按钮，通过 `POST /api/v1/analysis/market-review` 后台触发复盘并沿用通知配置。
+- [修复] 明确 `POST /api/v1/analysis/market-review` 的配置复用与锁语义：复用现有 Analyzer/SearchService 装配逻辑，仅提供进程内防重，跨实例多容器场景需外部幂等机制；并同步 `full-guide*` 说明与契约测试断言。
+- [文档] 补充市场复盘兼容性核验说明：接口与 CLI/Bot 共用 `build_market_review_runtime` 装配路径，兼容扩展仅做 `litellm_model` / `llm_model_list` 优先识别，再回退 legacy 键，不改 provider、模型名、Base URL 或 LiteLLM 路由语义；官方核验依据为 LiteLLM OpenAI-compatible 路由与 OpenAI/DeepSeek API 文档，且回归与兼容验证以 `requirements.txt` 当前约束 `litellm>=1.80.10,!=1.82.7,!=1.82.8,<2.0.0` 下的 `tests/test_llm_channel_config.py`、`tests/test_market_review_runtime.py`、`tests/test_analysis_api_contract.py` 为准；回退路径为恢复旧 `.env`/桌面导出备份并重启进程，或清空 `LITELLM_CONFIG`、`LLM_CHANNELS` 回退到 legacy `LITELLM_MODEL` / `LITELLM_FALLBACK_MODELS` / `GEMINI_*` / `OPENAI_*` / `ANTHROPIC_*` / `DEEPSEEK_*`。
+- [修复] 完善 Web “大盘复盘”按钮的可观测性：返回 `task_id` 后轮询 `task status`，在进行中/完成/失败场景展示明确反馈；`completed` 且属于大盘复盘时直接返回并展示 `market_review_report` 报告文本，兼容未启用外链文件访问的部署场景。
+- [测试] 补充 `tests/test_market_review_runtime.py` 覆盖“显式 `litellm_model` / `llm_model_list` / legacy key 在大盘复盘装配路径中的识别与回退顺序”回归，确保该功能变更可审计且未触达 provider/base url/litellm 路由语义变更。
 - [改进] 个股报告操作建议增加支撑/压力位与主力资金流校准，减少仅因单日涨跌导致买入/卖出剧烈切换，并补充“震荡观望、洗盘观察”等中性建议。
 - [文档] 本次决策稳定性与提示词约束改动仅保持运行时模型/provider/Base URL/发布语义不变，不改动配置持久化与环境语义；但涉及 `src/analyzer.py`、`src/core/pipeline.py`、`src/report_language.py` 与 `src/agent` 相关决策后处理/提示词路径的运行时行为，请回归验证决策落盘与报告口径映射。
 - [文档] 新增中文文档中心并同步英文索引，补齐快速开始、配置、使用专题、部署打包、参考开发等项目文档入口。
 - [文档] 调整 README 联系与合作区域。
+- [测试] 完成本地 Web 前端门禁验证：`cd apps/dsa-web && npm ci && npm run lint && npm run build`。
+- [文档] 新增可审计兼容证据交叉链：`Config._load_from_env()` 优先级为 `LITELLM_CONFIG` > `LLM_CHANNELS` > legacy，回退路径与回滚策略与 `tests/test_llm_channel_config.py`、`tests/test_market_review_runtime.py`、`tests/test_analysis_api_contract.py` 对齐。
+- [修复] 修正大盘复盘 Windows fallback 锁的进程存活探测，避免使用 `os.kill(pid, 0)` 误伤正在运行的复盘进程。
 - [改进] Web 首页接入首次启动配置状态，基础配置未完成时提示缺口并引导进入系统设置。
 
 ## [3.15.0] - 2026-05-05
