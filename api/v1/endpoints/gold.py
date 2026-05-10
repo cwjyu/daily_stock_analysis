@@ -24,22 +24,88 @@ _DATA_PATH = Path(__file__).resolve().parent.parent.parent.parent / "strategies"
 _CACHE: dict = {}
 _CACHE_TTL = 300  # refresh live data every 5 minutes
 
+_GOLD_DB_CODE = "XAUUSD"
+
+
+def sync_gold_to_stock_daily() -> int:
+    """Sync gold_daily.csv rows into stock_daily table (UPSERT by code+date).
+
+    Returns number of new rows inserted (not updated).
+    """
+    if not _DATA_PATH.exists():
+        logger.warning("Gold CSV not found, skip DB sync")
+        return 0
+
+    try:
+        df = pd.read_csv(_DATA_PATH, parse_dates=["Date"])
+    except Exception as e:
+        logger.warning(f"Failed to read gold CSV for DB sync: {e}")
+        return 0
+
+    if df.empty:
+        return 0
+
+    # Normalise to names expected by save_daily_data
+    df = df.rename(columns={
+        "Date": "date", "Open": "open", "High": "high",
+        "Low": "low", "Close": "close", "Volume": "volume",
+    })
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+
+    # Compute pct_chg if missing
+    if "pct_chg" not in df.columns:
+        df = df.sort_values("date")
+        df["pct_chg"] = df["close"].pct_change() * 100
+
+    try:
+        from src.storage import get_db
+        db = get_db()
+        saved = db.save_daily_data(df, _GOLD_DB_CODE, "GoldCSV")
+        logger.info(f"Gold → stock_daily synced: {saved} new rows")
+        return saved
+    except Exception as e:
+        logger.warning(f"Gold DB sync failed: {e}")
+        return 0
+
+
+def _append_gold_daily_row(row: dict) -> bool:
+    """Append one daily OHLCV row to the CSV. Returns True if added."""
+    try:
+        df = pd.read_csv(_DATA_PATH, parse_dates=["Date"])
+    except Exception:
+        return False
+
+    dt = pd.to_datetime(row["date"]).date()
+    existing = set(pd.to_datetime(df["Date"]).dt.date)
+    if dt in existing:
+        logger.debug(f"Gold CSV already has {dt}, skip")
+        return False
+
+    new_row = pd.DataFrame([{
+        "Date": row["date"],
+        "Open": row["open"],
+        "High": row["high"],
+        "Low": row["low"],
+        "Close": row["close"],
+        "Volume": row.get("volume", 0),
+    }])
+    df = pd.concat([df, new_row], ignore_index=True)
+    df = df.sort_values("Date").drop_duplicates(subset=["Date"], keep="last")
+    df.to_csv(_DATA_PATH, index=False)
+    _CACHE.clear()
+    logger.info(f"Gold CSV appended: {row['date']}")
+    return True
+
 
 def sync_gold_csv_on_startup() -> None:
     """
-    Check CSV for missing days and fill gaps from Infoway on startup.
+    Check CSV for missing days and fill gaps on startup.
 
-    Compares the last date in gold_daily.csv to yesterday (today's candle
-    may not be complete yet) and fetches any missing rows.
+    Priority: Infoway → 5huangjin daily → skip
+    Only 5huangjin gives the single latest trading day; Infoway can fill a range.
     """
     if not _DATA_PATH.exists():
         logger.warning("Gold CSV not found, skipping startup sync")
-        return
-
-    try:
-        from data_provider.infoway_fetcher import fetch_latest_gold_daily
-    except Exception:
-        logger.debug("Infoway not available, skipping startup sync")
         return
 
     try:
@@ -51,45 +117,62 @@ def sync_gold_csv_on_startup() -> None:
 
         if gap_days <= 0:
             logger.info(f"Gold CSV is up to date (last: {last_date})")
+            # Still try to sync to DB in case row was missed
+            sync_gold_to_stock_daily()
             return
 
         logger.info(f"Gold CSV has {gap_days} missing day(s) (last: {last_date}, expected: {yesterday})")
-
-        # Fetch enough days to cover gap + buffer
-        live = fetch_latest_gold_daily(days=max(gap_days + 5, 10))
-        if not live:
-            logger.warning("Startup sync: Infoway returned no data")
-            return
-
-        existing_dates = set(df["Date"].dt.date)
-        new_rows = []
-        for row in live:
-            dt = datetime.strptime(row["date"], "%Y-%m-%d").date()
-            if dt not in existing_dates and dt > last_date:
-                new_rows.append({
-                    "Date": row["date"],
-                    "Open": row["open"],
-                    "High": row["high"],
-                    "Low": row["low"],
-                    "Close": row["close"],
-                    "Volume": row.get("volume", 0),
-                })
-
-        if not new_rows:
-            logger.info("Startup sync: no new data to add")
-            return
-
-        df_new = pd.DataFrame(new_rows)
-        df_new = df_new.sort_values("Date")
-        df_merged = pd.concat([df, df_new], ignore_index=True)
-        df_merged = df_merged.sort_values("Date").drop_duplicates(subset=["Date"], keep="last")
-        df_merged.to_csv(_DATA_PATH, index=False)
-        _CACHE.clear()
-
-        dates_str = [r["Date"] for r in new_rows]
-        logger.info(f"Startup sync: added {len(new_rows)} rows to CSV: {dates_str}")
     except Exception as e:
-        logger.warning(f"Startup gold CSV sync failed: {e}")
+        logger.warning(f"Gold CSV read failed: {e}")
+        return
+
+    added = False
+
+    # 1) Try Infoway for gap fill (requires API key)
+    try:
+        from data_provider.infoway_fetcher import fetch_latest_gold_daily
+        live = fetch_latest_gold_daily(days=max(gap_days + 5, 10))
+        if live:
+            existing_dates = set(df["Date"].dt.date)
+            new_rows = []
+            for row in live:
+                dt = datetime.strptime(row["date"], "%Y-%m-%d").date()
+                if dt not in existing_dates and dt > last_date:
+                    new_rows.append({
+                        "Date": row["date"],
+                        "Open": row["open"],
+                        "High": row["high"],
+                        "Low": row["low"],
+                        "Close": row["close"],
+                        "Volume": row.get("volume", 0),
+                    })
+            if new_rows:
+                df_new = pd.DataFrame(new_rows).sort_values("Date")
+                df = pd.concat([df, df_new], ignore_index=True)
+                df = df.sort_values("Date").drop_duplicates(subset=["Date"], keep="last")
+                df.to_csv(_DATA_PATH, index=False)
+                _CACHE.clear()
+                dates_str = [r["Date"] for r in new_rows]
+                logger.info(f"Infoway sync: added {len(new_rows)} rows: {dates_str}")
+                added = True
+    except Exception:
+        logger.debug("Infoway not available for startup sync")
+
+    # 2) Fallback: 5huangjin daily (latest single candle, no API key needed)
+    if not added:
+        try:
+            from data_provider.eastmoney_fetcher import fetch_gold_daily_5huangjin
+            daily = fetch_gold_daily_5huangjin()
+            if daily and daily.get("date"):
+                dt = pd.to_datetime(daily["date"]).date()
+                if dt > last_date:
+                    added = _append_gold_daily_row(daily)
+        except Exception:
+            logger.debug("5huangjin daily not available")
+
+    # 3) Sync to stock_daily
+    if added:
+        sync_gold_to_stock_daily()
 
 
 def _compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -345,9 +428,12 @@ def update_gold_daily_csv():
         # Clear cache so next request picks up new data
         _CACHE.clear()
 
+        # Sync to stock_daily table
+        dbsync = sync_gold_to_stock_daily()
+
         dates_added = [r["Date"] for r in new_rows]
         logger.info(f"Gold CSV updated: added {len(new_rows)} rows: {dates_added}")
-        return {"success": True, "message": f"已添加 {len(new_rows)} 条", "added": len(new_rows), "dates": dates_added}
+        return {"success": True, "message": f"已添加 {len(new_rows)} 条，DB 同步 {dbsync} 条", "added": len(new_rows), "dates": dates_added}
     except FileNotFoundError:
         return {"success": False, "message": "CSV 文件未找到"}
     except Exception as e:

@@ -39,15 +39,8 @@ def _cache_ttl() -> float:
     return 10
 
 
-def _fetch_gold_5huangjin() -> Optional[Dict]:
-    """Fetch gold prices from 5huangjin.com data API (jin.js).
-
-    The API returns JS variable assignments:
-      hq_str_hf_XAU  = London gold spot (USD/oz)
-      hq_str_gds_AUTD = Shanghai Gold Au(T+D) (RMB/g)
-    """
-    import re
-
+def _fetch_jin_js() -> Optional[str]:
+    """Fetch jin.js from 5huangjin.com, return raw text on success."""
     try:
         resp = requests.get(
             "https://www.5huangjin.com/data/jin.js",
@@ -56,26 +49,37 @@ def _fetch_gold_5huangjin() -> Optional[Dict]:
             proxies={"http": None, "https": None},
         )
         resp.raise_for_status()
-        # The JS file is GB2312 or UTF-8; try explicit encoding
         if resp.encoding is None or resp.encoding.lower() == "iso-8859-1":
             resp.encoding = "gb2312"
-        text = resp.text
+        return resp.text
     except Exception as e:
         logger.debug(f"5huangjin jin.js fetch failed: {e}")
         return None
 
-    def _parse_quote(var_name: str) -> Optional[list]:
-        """Extract and split a hq_str_* variable from the JS text."""
-        m = re.search(
-            r'var\s+' + re.escape(var_name) + r'\s*=\s*"([^"]*)"',
-            text,
-        )
-        if not m:
-            return None
-        return m.group(1).split(",")
+
+def _parse_jin_quote(text: str, var_name: str) -> Optional[list]:
+    """Extract and split a hq_str_* variable from jin.js text."""
+    import re
+    m = re.search(
+        r'var\s+' + re.escape(var_name) + r'\s*=\s*"([^"]*)"',
+        text,
+    )
+    if not m:
+        return None
+    return m.group(1).split(",")
+
+
+def _fetch_gold_5huangjin() -> Optional[Dict]:
+    """Fetch gold real-time prices from 5huangjin.com data API (jin.js).
+
+    Returns dict with keys: price, prev_close, change, change_pct, time, rmb_per_gram
+    """
+    text = _fetch_jin_js()
+    if text is None:
+        return None
 
     # --- International gold (USD/oz) ---
-    xau = _parse_quote("hq_str_hf_XAU")
+    xau = _parse_jin_quote(text, "hq_str_hf_XAU")
     if not xau or len(xau) < 9:
         logger.debug("5huangjin: hq_str_hf_XAU not found or too short")
         return None
@@ -104,7 +108,7 @@ def _fetch_gold_5huangjin() -> Optional[Dict]:
     }
 
     # --- Domestic gold (RMB/g) ---
-    autd = _parse_quote("hq_str_gds_AUTD")
+    autd = _parse_jin_quote(text, "hq_str_gds_AUTD")
     if autd and len(autd) >= 1:
         try:
             rmb_gram = float(autd[0])
@@ -114,6 +118,54 @@ def _fetch_gold_5huangjin() -> Optional[Dict]:
         except (ValueError, IndexError):
             pass
 
+    return result
+
+
+def fetch_gold_daily_5huangjin() -> Optional[Dict]:
+    """Fetch the latest gold daily OHLCV candle from 5huangjin.com jin.js.
+
+    jin.js fields for hq_str_hf_XAU (from uk.js parsing):
+      [0]=close  [4]=high  [5]=low  [7]=prev_close  [8]=open  [12]=date
+
+    Returns dict with keys: date, open, high, low, close, prev_close, pct_chg
+    or None on failure.
+    """
+    text = _fetch_jin_js()
+    if text is None:
+        return None
+
+    xau = _parse_jin_quote(text, "hq_str_hf_XAU")
+    if not xau or len(xau) < 13:
+        logger.debug("5huangjin daily: hq_str_hf_XAU too short")
+        return None
+
+    try:
+        close = float(xau[0])
+        high = float(xau[4])
+        low = float(xau[5])
+        prev_close = float(xau[7])
+        open_price = float(xau[8])
+        qdate = xau[12].strip()
+    except (ValueError, IndexError):
+        logger.debug("5huangjin daily: parse failed", exc_info=True)
+        return None
+
+    if close <= 0 or open_price <= 0:
+        return None
+
+    # Compute pct_chg from prev_close (same formula as uk.js)
+    pct_chg = round((close - prev_close) / prev_close * 100, 3) if prev_close else 0.0
+
+    result = {
+        "date": qdate,
+        "open": round(open_price, 2),
+        "high": round(high, 2),
+        "low": round(low, 2),
+        "close": round(close, 2),
+        "prev_close": prev_close,
+        "pct_chg": pct_chg,
+    }
+    logger.info(f"5huangjin daily: {qdate} O={open_price} H={high} L={low} C={close}")
     return result
 
 
