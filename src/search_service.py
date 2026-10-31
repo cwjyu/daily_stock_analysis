@@ -40,6 +40,7 @@ from src.config import (
     resolve_news_window_days,
 )
 from src.data.stock_mapping import (
+    STOCK_ENGLISH_NAME_MAP,
     canonicalize_foreign_stock_code,
     foreign_stock_english_aliases,
 )
@@ -2545,7 +2546,9 @@ class SearchService:
         # 分支在 canonical 之后为不可达死代码，已删除。
         if code.isdigit() and len(code) == 5:
             return True
-        return False
+        # 商品/外汇/指数等 yfinance 原生代码（XAUUSD=X、GC=F、DX-Y.NYB 等）超出上述结构规则，
+        # 以 STOCK_ENGLISH_NAME_MAP 这份单一真源为准，避免两张静态表对同一代码判断不一致。
+        return code in STOCK_ENGLISH_NAME_MAP
 
     @staticmethod
     def _foreign_english_query_terms(stock_code: str, stock_name: str) -> Tuple[str, ...]:
