@@ -2672,6 +2672,21 @@ class DataFetcherManager:
                 logger.info(f"[实时行情] {market_label} {stock_code} 无可用数据源")
             return None
         
+        # --------------------------------------------------
+        # A 股 ETF — 新浪单只接口优先
+        #   东财全量 ETF 接口在限流/断连时会连续重试（数秒到数十秒），
+        #   而持仓估值只需要单只最新价，因此先走 AkshareFetcher（其 ETF
+        #   分支优先新浪单只行情），失败后再回落到通用优先级链。
+        # --------------------------------------------------
+        if _is_etf_code(stock_code):
+            quote = self._try_fetcher_quote(stock_code, "AkshareFetcher", **target_kwargs)
+            if quote is not None:
+                logger.info(f"[实时行情] ETF {stock_code} 成功获取 (来源: AkshareFetcher)")
+                return self._enrich_realtime_quote(
+                    quote,
+                    realtime_cache_ttl=getattr(config, "realtime_cache_ttl", None),
+                )
+
         # 获取配置的数据源优先级
         source_priority = [
             source.strip().lower()

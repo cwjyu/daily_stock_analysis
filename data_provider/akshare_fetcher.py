@@ -1096,10 +1096,15 @@ class AkshareFetcher(BaseFetcher):
         elif _is_hk_code(stock_code):
             return self._get_hk_realtime_quote(stock_code)
         elif _is_etf_code(stock_code):
+            # 新浪单只行情最快且稳定，优先使用；东财全量 ETF 接口在限流/超时下代价很高
+            quote = self._get_stock_realtime_quote_sina(stock_code)
+            if quote is not None:
+                return quote
             source_key = "akshare_etf"
             if not circuit_breaker.is_available(source_key):
                 logger.info(f"[熔断] 数据源 {source_key} 处于熔断状态，跳过")
                 return None
+            logger.info(f"[实时行情] ETF 新浪接口不可用，回退东财全量行情: {stock_code}")
             return self._get_etf_realtime_quote(stock_code)
         else:
             source_key = f"akshare_{source}"

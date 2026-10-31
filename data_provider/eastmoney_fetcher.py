@@ -272,7 +272,7 @@ def fetch_gold_realtime() -> Optional[Dict]:
 
     Returns dict with keys: price, prev_close, change, change_pct, time
     """
-    global _cache, _cache_ts
+    global _cache_ts
 
     now = time.time()
     ttl = _cache_ttl()
@@ -353,7 +353,7 @@ def fetch_usdcny_rate() -> Optional[Dict]:
 
     Returns dict with keys: rate, prev_close, change, change_pct, time
     """
-    global _cache, _usdcny_cache_ts
+    global _usdcny_cache_ts
 
     now = time.time()
     cache_key = "usdcny"
