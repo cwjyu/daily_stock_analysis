@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] 组合汇率刷新补齐「账户基础币种 → CNY」这一对（此前外币账户汇总只能退回 1:1 兜底并标记汇率过期），并在 yfinance 限流时回退到 Frankfurter 与新浪外汇 `fx_susdcny` 免密钥汇率；美元账户的总市值、总权益现在按真实汇率折算为 CNY。
 - [修复] A 股 ETF 实时行情在东财全量接口限流/断连时长时间无价且拖慢持仓快照：ETF 改为优先走新浪单只行情（东财作为兜底），并通过 `DataFetcherManager` 的 ETF 路由先命中 `AkshareFetcher`，单只 ETF 取价从数十秒降到秒级。
 - [修复] 修正外汇/商品等 yfinance 原生代码的外盘归属判断：`_is_foreign_stock()` 现在也以 `STOCK_ENGLISH_NAME_MAP` 为准识别 `XAUUSD=X`、`GC=F`、`DX-Y.NYB`、`SI=F` 等代码，保证与 `STOCK_NAME_MAP` 外键一致。
+- [修复] 黄金日线长期不再写入本地 CSV（数据停在 2026-05-08）：`_append_gold_daily_row` 把字符串日期写进 `datetime64` 列，`sort_values` 抛 `TypeError` 后被启动钩子静默吞掉；现统一做行规范化与按日期去重追加，启动同步与 `POST /api/v1/gold/update-daily` 改为「新浪历史日K → Infoway → 5huangjin」多源补齐，失败改为 `warning` 日志，并已回填 129 个交易日到 2026-10-30。
+- [修复] 黄金页「波段高/波段低」日期显示为 `2026-04-17700:00:00.000000000`：`_find_swings` 改为输出 `YYYY-MM-DD` 纯日期。
 
 ## [3.33.0] - 2026-10-15
 

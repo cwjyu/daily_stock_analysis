@@ -6,10 +6,14 @@ API: https://push2.eastmoney.com/api/qt/stock/get
 No API key required.
 """
 
+import json
 import logging
+import re
 import time
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict
+from typing import List, Optional, Dict
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import requests
 
@@ -167,6 +171,77 @@ def fetch_gold_daily_5huangjin() -> Optional[Dict]:
     }
     logger.info(f"5huangjin daily: {qdate} O={open_price} H={high} L={low} C={close}")
     return result
+
+
+_SINA_GOLD_DAILY_URL = (
+    "https://stock2.finance.sina.com.cn/futures/api/jsonp.php/"
+    "var%20_XAU=/GlobalFuturesService.getGlobalFuturesDailyKLine?symbol=XAU"
+)
+
+
+def fetch_gold_daily_sina(limit: int = 400) -> List[Dict]:
+    """Fetch XAU/USD daily candles from the Sina global futures API (free, no key).
+
+    Used to backfill ``strategies/data/gold_daily.csv``: the series matches the
+    rows already in that CSV (spot XAU/USD, one row per trading session) and the
+    endpoint returns the full history instead of just the latest candle.
+
+    Args:
+        limit: keep only the newest ``limit`` rows (<= 0 keeps everything).
+
+    Returns:
+        List of dicts with keys ``date``/``open``/``high``/``low``/``close``/
+        ``volume``. An empty list means the upstream payload was unavailable or
+        unparsable.
+    """
+    request = Request(
+        _SINA_GOLD_DAILY_URL,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; DSA/1.0; +https://github.com/ZhuLinsen/daily_stock_analysis)",
+            "Referer": "https://finance.sina.com.cn",
+        },
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            text = response.read().decode("utf-8", "ignore")
+    except (HTTPError, URLError, TimeoutError) as e:
+        logger.debug(f"sina gold daily fetch failed: {e}")
+        return []
+
+    match = re.search(r"\((\[.*\])\)", text, re.S)
+    if not match:
+        logger.debug("sina gold daily: payload has no JSON array")
+        return []
+    try:
+        raw = json.loads(match.group(1))
+    except (TypeError, ValueError):
+        logger.debug("sina gold daily: payload is not valid JSON")
+        return []
+
+    if not isinstance(raw, list) or not raw:
+        return []
+    if limit > 0:
+        raw = raw[-limit:]
+
+    rows: List[Dict] = []
+    for item in raw:
+        try:
+            rows.append({
+                "date": str(item["date"])[:10],
+                "open": float(item["open"]),
+                "high": float(item["high"]),
+                "low": float(item["low"]),
+                "close": float(item["close"]),
+                "volume": float(item.get("volume") or 0),
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    if rows:
+        logger.info(
+            f"sina gold daily: {len(rows)} rows ({rows[0]['date']} ~ {rows[-1]['date']})"
+        )
+    return rows
 
 
 def _fetch_gold_metals_live() -> Optional[Dict]:

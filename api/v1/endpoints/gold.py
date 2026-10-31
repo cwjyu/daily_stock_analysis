@@ -7,6 +7,7 @@ import logging
 import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Iterable, Optional
 
 import pandas as pd
 import numpy as np
@@ -68,111 +69,233 @@ def sync_gold_to_stock_daily() -> int:
         return 0
 
 
+def _normalise_gold_row(row: dict) -> Optional[dict]:
+    """Normalise a source row to the gold CSV schema (Date/Open/High/Low/Close/Volume)."""
+    raw_date = row.get("date") if row.get("date") is not None else row.get("Date")
+    try:
+        ts = pd.Timestamp(str(raw_date)[:10])
+    except (TypeError, ValueError):
+        return None
+    try:
+        open_price = float(row.get("open", row.get("Open")))
+        high = float(row.get("high", row.get("High")))
+        low = float(row.get("low", row.get("Low")))
+        close = float(row.get("close", row.get("Close")))
+    except (TypeError, ValueError):
+        return None
+    if close <= 0 or high < low:
+        return None
+    volume = row.get("volume", row.get("Volume"))
+    return {
+        "Date": ts,
+        "Open": open_price,
+        "High": high,
+        "Low": low,
+        "Close": close,
+        "Volume": float(volume) if volume not in (None, "") else 0.0,
+    }
+
+
+def _read_gold_csv() -> pd.DataFrame:
+    """Read the gold CSV with ``Date`` parsed and sorted ascending."""
+    df = pd.read_csv(_DATA_PATH, parse_dates=["Date"])
+    df["Date"] = pd.to_datetime(df["Date"])
+    return df.sort_values("Date").reset_index(drop=True)
+
+
+def _append_gold_rows(rows: Iterable[dict]) -> int:
+    """Append normalised rows to the CSV, skipping dates already present.
+
+    Returns the number of appended rows. Dates are written back as
+    ``YYYY-MM-DD`` so the tracked CSV stays diff-friendly.
+    """
+    normalised = []
+    for row in rows or []:
+        norm = _normalise_gold_row(row)
+        if norm is not None:
+            normalised.append(norm)
+    if not normalised:
+        return 0
+
+    if not _DATA_PATH.exists():
+        logger.warning(f"Gold CSV not found: {_DATA_PATH}")
+        return 0
+
+    try:
+        df = _read_gold_csv()
+    except Exception as e:
+        logger.warning(f"Gold CSV read failed: {e}", exc_info=True)
+        return 0
+
+    existing = set(df["Date"].dt.date)
+    new_rows = [r for r in normalised if r["Date"].date() not in existing]
+    if not new_rows:
+        logger.debug("Gold CSV already up to date, nothing to append")
+        return 0
+
+    merged = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
+    merged = merged.sort_values("Date").drop_duplicates(subset=["Date"], keep="last")
+    merged.to_csv(_DATA_PATH, index=False, date_format="%Y-%m-%d")
+    _CACHE.clear()
+    logger.info(
+        f"Gold CSV appended {len(new_rows)} row(s): "
+        f"{new_rows[0]['Date'].date()} ~ {new_rows[-1]['Date'].date()}"
+    )
+    return len(new_rows)
+
+
 def _append_gold_daily_row(row: dict) -> bool:
     """Append one daily OHLCV row to the CSV. Returns True if added."""
+    return _append_gold_rows([row]) > 0
+
+
+def _last_gold_csv_date() -> Optional[date]:
+    """Return the newest date present in the gold CSV, or ``None`` on failure."""
     try:
-        df = pd.read_csv(_DATA_PATH, parse_dates=["Date"])
+        return _read_gold_csv()["Date"].max().date()
+    except Exception as e:
+        logger.warning(f"Gold CSV read failed: {e}", exc_info=True)
+        return None
+
+
+def _is_new_gold_session(row: dict) -> bool:
+    """Return False when a source row only relabels the last CSV row.
+
+    5huangjin stamps the candle with the Beijing calendar date, one day ahead of
+    the session dates stored in the CSV; after the session has closed both
+    describe the same candle, so appending it would duplicate that day under a
+    second date.
+    """
+    norm = _normalise_gold_row(row)
+    if norm is None:
+        return False
+    try:
+        df = _read_gold_csv()
     except Exception:
+        return True
+    if df.empty:
+        return True
+    last = df.iloc[-1]
+    if norm["Date"].date() <= last["Date"].date():
         return False
+    same_candle = (
+        norm["Date"].date() - last["Date"].date() == timedelta(days=1)
+        and abs(norm["Close"] - float(last["Close"])) < 0.005
+        and abs(norm["High"] - float(last["High"])) < 0.005
+        and abs(norm["Low"] - float(last["Low"])) < 0.005
+    )
+    return not same_candle
 
-    dt = pd.to_datetime(row["date"]).date()
-    existing = set(pd.to_datetime(df["Date"]).dt.date)
-    if dt in existing:
-        logger.debug(f"Gold CSV already has {dt}, skip")
-        return False
 
-    new_row = pd.DataFrame([{
-        "Date": row["date"],
-        "Open": row["open"],
-        "High": row["high"],
-        "Low": row["low"],
-        "Close": row["close"],
-        "Volume": row.get("volume", 0),
-    }])
-    df = pd.concat([df, new_row], ignore_index=True)
-    df = df.sort_values("Date").drop_duplicates(subset=["Date"], keep="last")
-    df.to_csv(_DATA_PATH, index=False)
-    _CACHE.clear()
-    logger.info(f"Gold CSV appended: {row['date']}")
-    return True
+def _backfill_gold_csv(max_history_rows: int = 400) -> dict:
+    """Fill the gold CSV gap, trying free sources in priority order.
+
+    Sources:
+      1. Sina XAU/USD daily history - free, no API key, same series as the CSV.
+      2. Infoway daily history - requires ``INFOWAY_API_KEY``.
+      3. 5huangjin latest candle - free single-candle fallback.
+
+    Returns ``{"added": int, "sources": ["<name>:<rows>", ...]}``.
+    """
+    sources: list = []
+
+    # 1) Sina history (fills months of missing sessions in one call)
+    try:
+        from data_provider.eastmoney_fetcher import fetch_gold_daily_sina
+        count = _append_gold_rows(fetch_gold_daily_sina(limit=max_history_rows))
+        if count:
+            sources.append(f"sina:{count}")
+    except Exception as e:
+        logger.warning(f"Gold CSV sina backfill failed: {e}", exc_info=True)
+
+    if sources:
+        return {"added": _sum_gold_source_rows(sources), "sources": sources}
+
+    # 2) Infoway range fetch (requires API key)
+    try:
+        from data_provider.infoway_fetcher import fetch_latest_gold_daily
+        count = _append_gold_rows(fetch_latest_gold_daily(days=30) or [])
+        if count:
+            sources.append(f"infoway:{count}")
+    except Exception as e:
+        logger.debug(f"Gold CSV infoway backfill skipped: {e}")
+
+    if sources:
+        return {"added": _sum_gold_source_rows(sources), "sources": sources}
+
+    # 3) 5huangjin latest candle (free, single row)
+    try:
+        from data_provider.eastmoney_fetcher import fetch_gold_daily_5huangjin
+        daily = fetch_gold_daily_5huangjin()
+        if daily and _is_new_gold_session(daily):
+            count = _append_gold_rows([daily])
+            if count:
+                sources.append(f"5huangjin:{count}")
+    except Exception as e:
+        logger.debug(f"Gold CSV 5huangjin fallback skipped: {e}")
+
+    return {"added": _sum_gold_source_rows(sources), "sources": sources}
+
+
+def _sum_gold_source_rows(sources: list) -> int:
+    """Sum the ``<name>:<rows>`` counters collected by :func:`_backfill_gold_csv`."""
+    total = 0
+    for item in sources:
+        try:
+            total += int(str(item).rsplit(":", 1)[1])
+        except (IndexError, ValueError):
+            continue
+    return total
+
+
+def _expected_gold_session_date() -> date:
+    """Return the most recent weekday session before today.
+
+    XAU/USD trades Monday to Friday, so a Monday startup must not treat the
+    weekend as a missing session.
+    """
+    day = date.today() - timedelta(days=1)
+    while day.weekday() >= 5:
+        day -= timedelta(days=1)
+    return day
 
 
 def sync_gold_csv_on_startup() -> None:
-    """
-    Check CSV for missing days and fill gaps on startup.
+    """Fill missing sessions in ``gold_daily.csv`` and mirror them into the DB.
 
-    Priority: Infoway → 5huangjin daily → skip
-    Only 5huangjin gives the single latest trading day; Infoway can fill a range.
+    Runs on application startup and no-ops when the CSV already covers
+    yesterday. Failures are logged so a stale CSV is visible in the logs
+    instead of being swallowed.
     """
     if not _DATA_PATH.exists():
         logger.warning("Gold CSV not found, skipping startup sync")
         return
 
-    try:
-        df = pd.read_csv(_DATA_PATH, parse_dates=["Date"])
-        df["Date"] = pd.to_datetime(df["Date"])
-        last_date = df["Date"].max().date()
-        yesterday = date.today() - timedelta(days=1)
-        gap_days = (yesterday - last_date).days
-
-        if gap_days <= 0:
-            logger.info(f"Gold CSV is up to date (last: {last_date})")
-            # Still try to sync to DB in case row was missed
-            sync_gold_to_stock_daily()
-            return
-
-        logger.info(f"Gold CSV has {gap_days} missing day(s) (last: {last_date}, expected: {yesterday})")
-    except Exception as e:
-        logger.warning(f"Gold CSV read failed: {e}")
+    last_date = _last_gold_csv_date()
+    if last_date is None:
         return
 
-    added = False
-
-    # 1) Try Infoway for gap fill (requires API key)
-    try:
-        from data_provider.infoway_fetcher import fetch_latest_gold_daily
-        live = fetch_latest_gold_daily(days=max(gap_days + 5, 10))
-        if live:
-            existing_dates = set(df["Date"].dt.date)
-            new_rows = []
-            for row in live:
-                dt = datetime.strptime(row["date"], "%Y-%m-%d").date()
-                if dt not in existing_dates and dt > last_date:
-                    new_rows.append({
-                        "Date": row["date"],
-                        "Open": row["open"],
-                        "High": row["high"],
-                        "Low": row["low"],
-                        "Close": row["close"],
-                        "Volume": row.get("volume", 0),
-                    })
-            if new_rows:
-                df_new = pd.DataFrame(new_rows).sort_values("Date")
-                df = pd.concat([df, df_new], ignore_index=True)
-                df = df.sort_values("Date").drop_duplicates(subset=["Date"], keep="last")
-                df.to_csv(_DATA_PATH, index=False)
-                _CACHE.clear()
-                dates_str = [r["Date"] for r in new_rows]
-                logger.info(f"Infoway sync: added {len(new_rows)} rows: {dates_str}")
-                added = True
-    except Exception:
-        logger.debug("Infoway not available for startup sync")
-
-    # 2) Fallback: 5huangjin daily (latest single candle, no API key needed)
-    if not added:
-        try:
-            from data_provider.eastmoney_fetcher import fetch_gold_daily_5huangjin
-            daily = fetch_gold_daily_5huangjin()
-            if daily and daily.get("date"):
-                dt = pd.to_datetime(daily["date"]).date()
-                if dt > last_date:
-                    added = _append_gold_daily_row(daily)
-        except Exception:
-            logger.debug("5huangjin daily not available")
-
-    # 3) Sync to stock_daily
-    if added:
+    expected = _expected_gold_session_date()
+    gap_days = (expected - last_date).days
+    if gap_days <= 0:
+        logger.info(f"Gold CSV is up to date (last: {last_date})")
+        # Still try to sync to DB in case row was missed
         sync_gold_to_stock_daily()
+        return
+
+    logger.info(
+        f"Gold CSV has {gap_days} missing day(s) (last: {last_date}, expected: {expected})"
+    )
+    result = _backfill_gold_csv()
+    if result["added"]:
+        logger.info(
+            f"Gold CSV startup sync added {result['added']} row(s): {result['sources']}"
+        )
+        sync_gold_to_stock_daily()
+    else:
+        logger.warning(
+            "Gold CSV startup sync added no rows; gold K-line data may be stale"
+        )
 
 
 def _compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -389,56 +512,35 @@ def get_commodity_prices():
     "/update-daily",
     response_model=dict,
     summary="更新黄金日K CSV",
-    description="拉取 Infoway 最新日K线数据，追加到 gold_daily.csv。建议每日午夜调用。",
+    description="拉取新浪/Infoway 最新日K线数据，追加到 gold_daily.csv。建议每日收盘后调用。",
 )
 def update_gold_daily_csv():
-    """Fetch latest daily candle from Infoway and append to CSV if new."""
+    """Backfill ``gold_daily.csv`` from the free daily sources and sync to the DB."""
     try:
-        from data_provider.infoway_fetcher import fetch_latest_gold_daily
-        live = fetch_latest_gold_daily(days=3)
-        if not live:
-            return {"success": False, "message": "Infoway 未返回数据，检查 API Key"}
-
-        import pandas as pd
-        df_existing = pd.read_csv(_DATA_PATH, parse_dates=["Date"])
-        existing_dates = set(pd.to_datetime(df_existing["Date"]).dt.date)
-
-        new_rows = []
-        for row in live:
-            dt = pd.to_datetime(row["date"]).date()
-            if dt not in existing_dates:
-                new_rows.append({
-                    "Date": row["date"],
-                    "Open": row["open"],
-                    "High": row["high"],
-                    "Low": row["low"],
-                    "Close": row["close"],
-                    "Volume": row.get("volume", 0),
-                })
-
-        if not new_rows:
-            return {"success": True, "message": "已是最新，无需更新", "added": 0}
-
-        df_new = pd.DataFrame(new_rows)
-        df_new = df_new.sort_values("Date")
-        df_merged = pd.concat([df_existing, df_new], ignore_index=True)
-        df_merged = df_merged.sort_values("Date").drop_duplicates(subset=["Date"], keep="last")
-        df_merged.to_csv(_DATA_PATH, index=False)
-
-        # Clear cache so next request picks up new data
-        _CACHE.clear()
-
-        # Sync to stock_daily table
-        dbsync = sync_gold_to_stock_daily()
-
-        dates_added = [r["Date"] for r in new_rows]
-        logger.info(f"Gold CSV updated: added {len(new_rows)} rows: {dates_added}")
-        return {"success": True, "message": f"已添加 {len(new_rows)} 条，DB 同步 {dbsync} 条", "added": len(new_rows), "dates": dates_added}
+        result = _backfill_gold_csv()
     except FileNotFoundError:
         return {"success": False, "message": "CSV 文件未找到"}
     except Exception as e:
-        logger.warning(f"Gold CSV update failed: {e}")
+        logger.warning(f"Gold CSV update failed: {e}", exc_info=True)
         return {"success": False, "message": str(e)}
+
+    dbsync = sync_gold_to_stock_daily() if result["added"] else 0
+    if not result["added"]:
+        return {
+            "success": True,
+            "message": "已是最新，无需更新",
+            "added": 0,
+            "db_sync": dbsync,
+        }
+
+    logger.info(f"Gold CSV updated: added {result['added']} row(s) via {result['sources']}")
+    return {
+        "success": True,
+        "message": f"已添加 {result['added']} 条，DB 同步 {dbsync} 条",
+        "added": result["added"],
+        "sources": result["sources"],
+        "db_sync": dbsync,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -466,10 +568,10 @@ def _find_swings(high: np.ndarray, low: np.ndarray, dates: np.ndarray, window: i
     result = {}
     if swing_highs:
         result["swing_high"] = swing_highs[-1][1]
-        result["swing_high_date"] = str(swing_highs[-1][0])
+        result["swing_high_date"] = pd.Timestamp(swing_highs[-1][0]).strftime("%Y-%m-%d")
     if swing_lows:
         result["swing_low"] = swing_lows[-1][1]
-        result["swing_low_date"] = str(swing_lows[-1][0])
+        result["swing_low_date"] = pd.Timestamp(swing_lows[-1][0]).strftime("%Y-%m-%d")
     return result
 
 
