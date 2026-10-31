@@ -259,6 +259,35 @@ function hasCompletePositionPriceCoverage(snapshot: PortfolioSnapshotResponse | 
     ));
 }
 
+/**
+ * 持仓快照默认读取数据库里的历史收盘价；当某个持仓还没有收盘价（例如刚录入的
+ * 美股，或历史行情源暂时不可用）时，再补一次带实时行情的请求，避免页面长期显示
+ * 「缺价」。实时行情仍不可用时保留首次结果，不影响页面其余内容。
+ */
+async function loadSnapshotWithRealtimeFallback(
+  accountId: number | undefined,
+  costMethod: PortfolioCostMethod,
+): Promise<{ snapshot: PortfolioSnapshotResponse; usedRealtime: boolean }> {
+  const snapshot = await portfolioApi.getSnapshot({
+    accountId,
+    costMethod,
+    includeRealtime: false,
+  });
+  if (hasCompletePositionPriceCoverage(snapshot)) {
+    return { snapshot, usedRealtime: false };
+  }
+  try {
+    const realtimeSnapshot = await portfolioApi.getSnapshot({
+      accountId,
+      costMethod,
+      includeRealtime: true,
+    });
+    return { snapshot: realtimeSnapshot, usedRealtime: true };
+  } catch {
+    return { snapshot, usedRealtime: false };
+  }
+}
+
 function getValidTopPositionRows(risk: PortfolioRiskResponse | null) {
   const concentration = risk?.concentration;
   const rows = concentration?.topPositions;
@@ -784,11 +813,7 @@ const PortfolioPage: React.FC = () => {
     setIsLoading(true);
     setRiskWarning(null);
     try {
-      const snapshotData = await portfolioApi.getSnapshot({
-        accountId: queryAccountId,
-        costMethod,
-        includeRealtime: false,
-      });
+      const { snapshot: snapshotData, usedRealtime } = await loadSnapshotWithRealtimeFallback(queryAccountId, costMethod);
       setSnapshot(snapshotData);
       setError(null);
 
@@ -796,7 +821,7 @@ const PortfolioPage: React.FC = () => {
         const riskData = await portfolioApi.getRisk({
           accountId: queryAccountId,
           costMethod,
-          includeRealtime: false,
+          includeRealtime: usedRealtime,
         });
         setRisk(riskData);
       } catch (riskErr) {
@@ -1324,11 +1349,7 @@ const PortfolioPage: React.FC = () => {
     setRiskWarning(null);
 
     try {
-      const snapshotData = await portfolioApi.getSnapshot({
-        accountId: requestedAccountId,
-        costMethod: requestedCostMethod,
-        includeRealtime: false,
-      });
+      const { snapshot: snapshotData, usedRealtime } = await loadSnapshotWithRealtimeFallback(requestedAccountId, requestedCostMethod);
       if (!isActiveRefreshContext(requestedViewKey, requestedRequestId)) {
         return false;
       }
@@ -1339,7 +1360,7 @@ const PortfolioPage: React.FC = () => {
         const riskData = await portfolioApi.getRisk({
           accountId: requestedAccountId,
           costMethod: requestedCostMethod,
-          includeRealtime: false,
+          includeRealtime: usedRealtime,
         });
         if (!isActiveRefreshContext(requestedViewKey, requestedRequestId)) {
           return false;

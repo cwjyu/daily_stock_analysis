@@ -556,6 +556,106 @@ class YfinanceFetcher(BaseFetcher):
         """
         return is_us_stock_code(stock_code)
 
+    _SINA_US_QUOTE_ENDPOINT = "https://hq.sinajs.cn/list=gb_{symbol}"
+    _SINA_US_QUOTE_TIMEOUT_SECONDS = 10
+
+    def _get_us_stock_quote_from_sina(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
+        """
+        使用新浪财经美股接口为美股实时行情提供免密钥兜底。
+
+        Yahoo / yfinance 被限流（YFRateLimitError）时，Stooq 的 CSV 接口也常直接返回
+        404，新浪美股接口（``gb_`` 前缀）仍能给出最新价、昨收与日内区间，足以支撑持仓
+        估值和行情展示。
+        """
+        symbol = stock_code.strip().upper()
+        url = self._SINA_US_QUOTE_ENDPOINT.format(symbol=symbol.lower())
+        request = Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; DSA/1.0; +https://github.com/ZhuLinsen/daily_stock_analysis)",
+                "Referer": "https://finance.sina.com.cn",
+            },
+        )
+
+        try:
+            with urlopen(request, timeout=self._SINA_US_QUOTE_TIMEOUT_SECONDS) as response:
+                payload = response.read().decode("gbk", "ignore").strip()
+        except (HTTPError, URLError, TimeoutError) as exc:
+            logger.warning(f"[Sina] 获取美股 {symbol} 实时行情失败: {exc}")
+            return None
+
+        quote = self._parse_sina_us_quote(symbol, payload)
+        if quote is None:
+            logger.warning(f"[Sina] 无法解析美股 {symbol} 的行情数据")
+            return None
+        logger.info(f"[Sina] 获取美股 {symbol} 兜底行情成功: 价格={quote.price}")
+        return quote
+
+    @staticmethod
+    def _parse_sina_us_quote(symbol: str, payload: str) -> Optional[UnifiedRealtimeQuote]:
+        """解析新浪 ``hq_str_gb_<symbol>`` 返回值。"""
+        start = payload.find('"')
+        end = payload.rfind('"')
+        if start == -1 or end <= start:
+            return None
+
+        fields = [item.strip() for item in payload[start + 1:end].split(",")]
+        if len(fields) < 28:
+            return None
+
+        def _optional_float(index: int) -> Optional[float]:
+            try:
+                return float(fields[index])
+            except (TypeError, ValueError, IndexError):
+                return None
+
+        price = _optional_float(1)
+        if price is None or price <= 0:
+            return None
+
+        prev_close = _optional_float(26)
+        high = _optional_float(6)
+        low = _optional_float(7)
+        change_pct = _optional_float(2)
+        change_amount = _optional_float(4)
+        volume = _optional_float(10)
+        amplitude = None
+        if prev_close and prev_close > 0 and high is not None and low is not None:
+            amplitude = ((high - low) / prev_close) * 100
+
+        return UnifiedRealtimeQuote(
+            code=symbol,
+            name=fields[0] or STOCK_NAME_MAP.get(symbol, ""),
+            source=RealtimeSource.SINA,
+            market="us",
+            currency="USD",
+            price=price,
+            change_pct=round(change_pct, 2) if change_pct is not None else None,
+            change_amount=round(change_amount, 4) if change_amount is not None else None,
+            volume=int(volume) if volume is not None else None,
+            amount=None,
+            volume_ratio=None,
+            turnover_rate=None,
+            amplitude=round(amplitude, 2) if amplitude is not None else None,
+            open_price=_optional_float(5),
+            high=high,
+            low=low,
+            pre_close=prev_close,
+            pe_ratio=None,
+            pb_ratio=None,
+            total_mv=_optional_float(12),
+            circ_mv=None,
+            high_52w=_optional_float(8),
+            low_52w=_optional_float(9),
+        )
+
+    def _get_us_stock_quote_from_free_sources(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
+        """按 新浪 → Stooq 顺序尝试免密钥美股兜底行情。"""
+        quote = self._get_us_stock_quote_from_sina(stock_code)
+        if quote is not None:
+            return quote
+        return self._get_us_stock_quote_from_stooq(stock_code)
+
     def _get_us_stock_quote_from_stooq(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """
         使用 Stooq 为美股实时行情提供免密钥兜底。
@@ -882,8 +982,8 @@ class YfinanceFetcher(BaseFetcher):
                 hist = ticker.history(period='2d')
                 if hist.empty:
                     if is_us_symbol:
-                        logger.warning(f"[Yfinance] 无法获取 {symbol} 的数据，尝试 Stooq 兜底")
-                        return self._get_us_stock_quote_from_stooq(symbol)
+                        logger.warning(f"[Yfinance] 无法获取 {symbol} 的数据，尝试免密钥兜底源（新浪/Stooq）")
+                        return self._get_us_stock_quote_from_free_sources(symbol)
                     logger.warning(f"[Yfinance] 无法获取 {symbol} 的数据")
                     return None
 
@@ -968,8 +1068,8 @@ class YfinanceFetcher(BaseFetcher):
 
         except Exception as e:
             if self._is_us_stock(stock_code):
-                logger.warning(f"[Yfinance] 获取美股 {stock_code} 实时行情失败: {e}，尝试 Stooq 兜底")
-                return self._get_us_stock_quote_from_stooq(stock_code)
+                logger.warning(f"[Yfinance] 获取美股 {stock_code} 实时行情失败: {e}，尝试免密钥兜底源（新浪/Stooq）")
+                return self._get_us_stock_quote_from_free_sources(stock_code)
             logger.warning(f"[Yfinance] 获取 {stock_code} 实时行情失败: {e}")
             return None
 

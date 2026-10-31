@@ -10,6 +10,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from data_provider.base import canonical_stock_code, normalize_stock_code
 from src.config import get_config
@@ -38,6 +40,8 @@ VALID_CASH_DIRECTIONS = {"in", "out"}
 VALID_CORPORATE_ACTIONS = {"cash_dividend", "split_adjustment"}
 PORTFOLIO_FX_REFRESH_DISABLED_REASON = "portfolio_fx_update_disabled"
 PORTFOLIO_REALTIME_QUOTE_MAX_WORKERS = 4
+AGGREGATE_CURRENCY = "CNY"
+_FX_FALLBACK_TIMEOUT_SECONDS = 10
 
 
 def _portfolio_limitations_for_market(market: str) -> List[str]:
@@ -488,7 +492,7 @@ class PortfolioService:
             account_rows = self.repo.list_accounts(include_inactive=False)
 
         accounts_payload: List[Dict[str, Any]] = []
-        aggregate_currency = "CNY"
+        aggregate_currency = AGGREGATE_CURRENCY
         aggregate = {
             "total_cash": 0.0,
             "total_market_value": 0.0,
@@ -1526,32 +1530,39 @@ class PortfolioService:
             as_of_date=as_of_date,
             strict=refresh_enabled,
         )
+        base_currency = self._normalize_currency(account.base_currency)
+        refresh_pairs: List[Tuple[str, str]] = [
+            (currency, base_currency) for currency in refresh_currencies
+        ]
+        # 组合汇总固定以 CNY 计价，账户基础币种不是 CNY 时也需要这一对汇率，
+        # 否则汇总只能退回 1:1 兜底并标记为过期。
+        if base_currency != AGGREGATE_CURRENCY:
+            refresh_pairs.append((base_currency, AGGREGATE_CURRENCY))
         if not refresh_enabled:
             return {
-                "pair_count": len(refresh_currencies),
+                "pair_count": len(refresh_pairs),
                 "updated_count": 0,
                 "stale_count": 0,
                 "error_count": 0,
             }
 
-        base_currency = self._normalize_currency(account.base_currency)
         summary = {
-            "pair_count": len(refresh_currencies),
+            "pair_count": len(refresh_pairs),
             "updated_count": 0,
             "stale_count": 0,
             "error_count": 0,
         }
-        for from_currency in refresh_currencies:
+        for from_currency, to_currency in refresh_pairs:
             try:
-                rate = self._fetch_fx_rate_from_yfinance(
+                rate = self._fetch_fx_rate(
                     from_currency=from_currency,
-                    to_currency=base_currency,
+                    to_currency=to_currency,
                     as_of_date=as_of_date,
                 )
                 if rate is not None and rate > 0:
                     self.repo.save_fx_rate(
                         from_currency=from_currency,
-                        to_currency=base_currency,
+                        to_currency=to_currency,
                         rate_date=as_of_date,
                         rate=rate,
                         source="yfinance",
@@ -1563,20 +1574,20 @@ class PortfolioService:
                 logger.warning(
                     "FX online fetch failed for %s/%s on %s: %s",
                     from_currency,
-                    base_currency,
+                    to_currency,
                     as_of_date.isoformat(),
                     exc,
                 )
 
             fallback = self.repo.get_latest_fx_rate(
                 from_currency=from_currency,
-                to_currency=base_currency,
+                to_currency=to_currency,
                 as_of=as_of_date,
             )
             if fallback is not None and float(fallback.rate or 0.0) > 0:
                 self.repo.save_fx_rate(
                     from_currency=from_currency,
-                    to_currency=base_currency,
+                    to_currency=to_currency,
                     rate_date=as_of_date,
                     rate=float(fallback.rate),
                     source=(fallback.source or "cache_fallback"),
@@ -1586,6 +1597,97 @@ class PortfolioService:
             else:
                 summary["error_count"] += 1
         return summary
+
+    def _fetch_fx_rate(
+        self,
+        *,
+        from_currency: str,
+        to_currency: str,
+        as_of_date: date,
+    ) -> Optional[float]:
+        """在线抓取汇率：yfinance 失败时回退到免密钥数据源。"""
+        try:
+            rate = self._fetch_fx_rate_from_yfinance(
+                from_currency=from_currency,
+                to_currency=to_currency,
+                as_of_date=as_of_date,
+            )
+        except Exception as exc:
+            logger.warning(
+                "yfinance FX fetch failed for %s/%s: %s",
+                from_currency,
+                to_currency,
+                exc,
+            )
+            rate = None
+        if rate is not None and rate > 0:
+            return rate
+        return self._fetch_fx_rate_from_fallback(
+            from_currency=from_currency,
+            to_currency=to_currency,
+        )
+
+    @staticmethod
+    def _fetch_fx_rate_from_fallback(
+        *,
+        from_currency: str,
+        to_currency: str,
+    ) -> Optional[float]:
+        """yfinance 被限流时使用的免密钥汇率兜底源。"""
+        pair = f"{from_currency}{to_currency}"
+        if pair != "USDCNY":
+            return None
+        rate = PortfolioService._fetch_usdcny_from_frankfurter()
+        if rate is not None:
+            return rate
+        return PortfolioService._fetch_usdcny_from_sina()
+
+    @staticmethod
+    def _fetch_usdcny_from_frankfurter() -> Optional[float]:
+        """Frankfurter（欧洲央行参考汇率）免密钥接口。"""
+        url = "https://api.frankfurter.app/latest?from=USD&to=CNY"
+        request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        try:
+            with urlopen(request, timeout=_FX_FALLBACK_TIMEOUT_SECONDS) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            rate = float(payload["rates"]["CNY"])
+        except (HTTPError, URLError, TimeoutError, ValueError, KeyError, TypeError) as exc:
+            logger.warning("Frankfurter USD/CNY fallback failed: %s", exc)
+            return None
+        return rate if 1.0 < rate < 20.0 else None
+
+    @staticmethod
+    def _fetch_usdcny_from_sina() -> Optional[float]:
+        """新浪外汇 ``fx_susdcny`` 接口，字段顺序与股票行情不同。"""
+        url = "https://hq.sinajs.cn/list=fx_susdcny"
+        request = Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://finance.sina.com.cn",
+            },
+        )
+        try:
+            with urlopen(request, timeout=_FX_FALLBACK_TIMEOUT_SECONDS) as response:
+                payload = response.read().decode("gbk", "ignore")
+        except (HTTPError, URLError, TimeoutError) as exc:
+            logger.warning("Sina USD/CNY fallback failed: %s", exc)
+            return None
+
+        start = payload.find('"')
+        end = payload.rfind('"')
+        if start == -1 or end <= start:
+            return None
+        fields = [item.strip() for item in payload[start + 1:end].split(",")]
+        # 依次尝试卖价、买价、最新价，取第一个落在合理区间内的值。
+        for index in (2, 1, 8):
+            try:
+                rate = float(fields[index])
+            except (IndexError, TypeError, ValueError):
+                continue
+            if 1.0 < rate < 20.0:
+                return rate
+        return None
 
     @staticmethod
     def _fetch_fx_rate_from_yfinance(

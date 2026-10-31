@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import tempfile
@@ -1396,6 +1397,63 @@ class PortfolioServiceTestCase(unittest.TestCase):
                 with self.assertRaises(PortfolioBusyError):
                     with repo.portfolio_write_session():
                         pass
+
+    def test_refresh_fx_rates_includes_aggregate_currency_pair(self) -> None:
+        """非 CNY 账户也必须刷新 基础币种 -> CNY，否则汇总只能退回 1:1 兜底。"""
+        account = self.service.create_account(
+            name="us-account",
+            broker="Demo",
+            market="us",
+            base_currency="USD",
+        )
+        with patch.object(PortfolioService, "_fetch_fx_rate", return_value=7.12):
+            summary = self.service.refresh_fx_rates(account_id=account["id"])
+
+        self.assertEqual(summary["pair_count"], 1)
+        self.assertEqual(summary["updated_count"], 1)
+        rate = self.service.repo.get_latest_fx_rate(
+            from_currency="USD",
+            to_currency="CNY",
+            as_of=date.today(),
+        )
+        self.assertIsNotNone(rate)
+        self.assertAlmostEqual(float(rate.rate), 7.12)
+
+    @patch("src.services.portfolio_service.urlopen")
+    def test_fx_fallback_prefers_frankfurter_for_usdcny(self, mock_urlopen) -> None:
+        response = mock_urlopen.return_value.__enter__.return_value
+        response.read.return_value = json.dumps({"rates": {"CNY": 6.6529}}).encode("utf-8")
+
+        rate = PortfolioService._fetch_fx_rate_from_fallback(
+            from_currency="USD",
+            to_currency="CNY",
+        )
+
+        self.assertAlmostEqual(rate, 6.6529)
+
+    @patch("src.services.portfolio_service.urlopen")
+    def test_fx_fallback_parses_sina_payload(self, mock_urlopen) -> None:
+        response = mock_urlopen.return_value.__enter__.return_value
+        response.read.return_value = (
+            'var hq_str_fx_susdcny="03:00:00,6.6540000000,6.6558000000,6.6558000000,'
+            '84.0000000000,6.6600000000,6.6607000000,6.6523000000,6.6558000000";'
+        ).encode("gbk")
+
+        with patch.object(PortfolioService, "_fetch_usdcny_from_frankfurter", return_value=None):
+            rate = PortfolioService._fetch_fx_rate_from_fallback(
+                from_currency="USD",
+                to_currency="CNY",
+            )
+
+        self.assertAlmostEqual(rate, 6.6558)
+
+    def test_fx_fallback_skips_unsupported_pairs(self) -> None:
+        self.assertIsNone(
+            PortfolioService._fetch_fx_rate_from_fallback(
+                from_currency="EUR",
+                to_currency="JPY",
+            )
+        )
 
 
 if __name__ == "__main__":

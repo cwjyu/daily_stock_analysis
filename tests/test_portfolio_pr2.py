@@ -747,7 +747,11 @@ class PortfolioPr2TestCase(unittest.TestCase):
             is_stale=False,
         )
 
-        with patch.object(PortfolioService, "_fetch_fx_rate_from_yfinance", return_value=None):
+        with patch.object(PortfolioService, "_fetch_fx_rate_from_yfinance", return_value=None), patch.object(
+            PortfolioService,
+            "_fetch_fx_rate_from_fallback",
+            return_value=None,
+        ):
             summary = self.service.refresh_fx_rates(account_id=aid, as_of=date(2026, 1, 2))
 
         self.assertEqual(summary["pair_count"], 1)
@@ -860,7 +864,11 @@ class PortfolioPr2TestCase(unittest.TestCase):
             currency="USD",
         )
 
-        with patch.object(PortfolioService, "_fetch_fx_rate_from_yfinance", return_value=None):
+        with patch.object(PortfolioService, "_fetch_fx_rate_from_yfinance", return_value=None), patch.object(
+            PortfolioService,
+            "_fetch_fx_rate_from_fallback",
+            return_value=None,
+        ):
             response = self.client.post(
                 "/api/v1/portfolio/fx/refresh",
                 params={"account_id": account_id, "as_of": "2026-01-02"},
