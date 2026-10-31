@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - [新功能] 新增伦敦金（XAUUSD）专题：Web 黄金页展示日线 K 线与 MA5/MA10/MA20/MA50/MA200、布林带、ADX 指标，提供商品联动报价、黄金新闻与趋势分析接口（`/api/v1/gold/*`），Bot 意图识别支持 `XAUUSD=X`、`GC=F`、`DX-Y.NYB`、`^GSPC` 等 YF 原生代码。
 - [改进] `docker/docker-compose.yml` 默认 API 端口改为 15943（可用 `API_PORT` 覆盖），并挂载 `api/`、`data_provider/`、`src/`、`bot/`、`main.py` 代码目录，代码更新后重启容器即可生效、无需重新构建镜像。
+- [修复] 美股实时行情在 Yahoo 限流（`YFRateLimitError`）且 Stooq 接口 404 时长期缺价：新增免密钥兜底链「新浪美股 `gb_` 接口 → Stooq」，`YfinanceFetcher` 解析新浪返回的最新价、昨收、日内区间、成交量、市值与 52 周高低，持仓估值不再显示「缺价」。
+- [改进] 持仓页在缺少历史收盘价时自动补取一次实时行情（并同步刷新风险看板口径），避免新录入的美股持仓长期停在「缺价」状态。
+- [修复] 组合汇率刷新补齐「账户基础币种 → CNY」这一对（此前外币账户汇总只能退回 1:1 兜底并标记汇率过期），并在 yfinance 限流时回退到 Frankfurter 与新浪外汇 `fx_susdcny` 免密钥汇率；美元账户的总市值、总权益现在按真实汇率折算为 CNY。
+- [修复] A 股 ETF 实时行情在东财全量接口限流/断连时长时间无价且拖慢持仓快照：ETF 改为优先走新浪单只行情（东财作为兜底），并通过 `DataFetcherManager` 的 ETF 路由先命中 `AkshareFetcher`，单只 ETF 取价从数十秒降到秒级。
+- [修复] 修正外汇/商品等 yfinance 原生代码的外盘归属判断：`_is_foreign_stock()` 现在也以 `STOCK_ENGLISH_NAME_MAP` 为准识别 `XAUUSD=X`、`GC=F`、`DX-Y.NYB`、`SI=F` 等代码，保证与 `STOCK_NAME_MAP` 外键一致。
 
 ## [3.33.0] - 2026-10-15
 
