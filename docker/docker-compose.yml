@@ -26,6 +26,13 @@ x-common: &common
     - ../logs:/app/logs
     - ../reports:/app/reports
     - ../strategies:/app/strategies:ro
+    # 代码目录挂载（代码更新只需 restart，无需 rebuild）
+    - ../api:/app/api:ro
+    - ../data_provider:/app/data_provider:ro
+    - ../src:/app/src:ro
+    - ../bot:/app/bot:ro
+    - ../patch:/app/patch:ro
+    - ../main.py:/app/main.py:ro
     # Longbridge OAuth token cache persistence; entrypoint repairs container-side ownership for dsa user.
     # Create ../longbridge_tokens on the host before copying an authorized token cache into it.
     - ../longbridge_tokens:/home/dsa/.longbridge
@@ -66,7 +73,7 @@ services:
   server:
     <<: *common
     container_name: stock-server
-    command: ["python", "main.py", "--serve-only", "--host", "0.0.0.0", "--port", "${API_PORT:-8000}"]
+    command: ["python", "main.py", "--serve-only", "--host", "0.0.0.0", "--port", "${API_PORT:-15943}"]
     # 若使用 network_mode: host，则以下 ports 映射无效，端口由 command 中的 --port 指定
     ports:
-      - "${API_PORT:-8000}:${API_PORT:-8000}"
+      - "${API_PORT:-15943}:${API_PORT:-15943}"

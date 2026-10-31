@@ -20,6 +20,7 @@ from api.v1.endpoints import (
     backtest,
     data,
     decision_signals,
+    gold,
     health,
     history,
     intelligence,
@@ -120,4 +121,10 @@ router.include_router(
 router.include_router(
     health.router,
     tags=["Health"]
+)
+
+router.include_router(
+    gold.router,
+    prefix="/gold",
+    tags=["Gold"]
 )

@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 
+- [新功能] 新增伦敦金（XAUUSD）专题：Web 黄金页展示日线 K 线与 MA5/MA10/MA20/MA50/MA200、布林带、ADX 指标，提供商品联动报价、黄金新闻与趋势分析接口（`/api/v1/gold/*`），Bot 意图识别支持 `XAUUSD=X`、`GC=F`、`DX-Y.NYB`、`^GSPC` 等 YF 原生代码。
+- [改进] `docker/docker-compose.yml` 默认 API 端口改为 15943（可用 `API_PORT` 覆盖），并挂载 `api/`、`data_provider/`、`src/`、`bot/`、`main.py` 代码目录，代码更新后重启容器即可生效、无需重新构建镜像。
+
 ## [3.33.0] - 2026-10-15
 
 ### 发布亮点

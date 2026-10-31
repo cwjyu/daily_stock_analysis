@@ -53,7 +53,11 @@ class AskCommand(BotCommand):
             return "", []
 
         code_like = re.compile(
-            r"^,?(\d{6}|hk\d{5}|[A-Za-z]{1,5}(\.[A-Za-z]{1,2})?),?$",
+            r"^,?(\d{6}|hk\d{5}|[A-Za-z]{1,5}(\.[A-Za-z]{1,2})?"
+            r"|[A-Z]{3,6}=[A-Z]"
+            r"|[A-Z]{1,4}=F"
+            r"|[A-Z]{1,8}-[A-Z]{1,4}\.[A-Z]{2,3}"
+            r"|\^[A-Z]{1,8})?,?$",
             re.IGNORECASE,
         )
         raw_codes_parts = [args[0]]
@@ -90,15 +94,23 @@ class AskCommand(BotCommand):
         parts = [p.strip().upper() for p in raw.replace("，", ",").split(",") if p.strip()]
         return [canonical_stock_code(part) for part in parts]
 
+    _YF_NATIVE_RE = re.compile(
+        r"(?:^[A-Z]{3,6}=[A-Z]$)"             # Forex pairs: XAUUSD=X, EURUSD=X
+        r"|(?:^[A-Z]{1,4}=F$)"                 # Futures: GC=F, SI=F, CL=F
+        r"|(?:^[A-Z]{1,8}-[A-Z]{1,4}\.[A-Z]{2,3}$)"  # DX-Y.NYB style
+        r"|(?:^\^[A-Z]{1,8}$)"                 # Indices: ^GSPC, ^HSI, ^TNX
+    )
+
     def _validate_single_code(self, code: str) -> Optional[str]:
         """Validate a single stock code format."""
         normalized = code.upper()
         is_a_stock = re.match(r"^\d{6}$", normalized)
         is_hk_stock = re.match(r"^HK\d{5}$", normalized)
         is_us_stock = re.match(r"^[A-Z]{1,5}(\.[A-Z]{1,2})?$", normalized)
+        is_yf_native = bool(self._YF_NATIVE_RE.match(normalized))
 
-        if not (is_a_stock or is_hk_stock or is_us_stock):
-            return f"无效的股票代码: {normalized}（A股6位数字 / 港股HK+5位数字 / 美股1-5个字母）"
+        if not (is_a_stock or is_hk_stock or is_us_stock or is_yf_native):
+            return f"无效的股票代码: {normalized}（A股6位数字 / 港股HK+5位数字 / 美股1-5个字母 / 商品外汇如XAUUSD=X）"
         return None
 
     def validate_args(self, args: List[str]) -> Optional[str]:

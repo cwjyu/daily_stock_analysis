@@ -107,6 +107,11 @@ STOCK_NAME_MAP = {
     "01299": "友邦保险",
     "00941": "中国移动",
     "00883": "中国海洋石油",
+    # === Commodities & Forex (yfinance-native tickers) ===
+    "XAUUSD=X": "伦敦金 (XAU/USD)",
+    "GC=F": "COMEX黄金期货",
+    "DX-Y.NYB": "美元指数 (DXY)",
+    "SI=F": "COMEX白银期货",
 }
 
 
@@ -173,6 +178,11 @@ STOCK_ENGLISH_NAME_MAP: Dict[str, Tuple[str, ...]] = {
     "01299": ("AIA Group", "AIA"),
     "00941": ("China Mobile",),
     "00883": ("CNOOC",),
+    # === Commodities & Forex (yfinance-native tickers) ===
+    "XAUUSD=X": ("London Gold (XAU/USD)", "XAUUSD", "Gold"),
+    "GC=F": ("COMEX Gold Futures", "Gold futures"),
+    "DX-Y.NYB": ("US Dollar Index (DXY)", "DXY"),
+    "SI=F": ("COMEX Silver Futures", "Silver futures"),
 }
 
 

@@ -294,6 +294,15 @@ async def app_lifespan(app: FastAPI):
     from src.services.name_to_code_resolver import warmup_akshare_cache
 
     warmup_akshare_cache()
+
+    # Sync gold daily CSV on startup (fill gaps)
+    try:
+        from api.v1.endpoints.gold import sync_gold_csv_on_startup
+
+        sync_gold_csv_on_startup()
+    except Exception:
+        logger.debug("Gold startup sync skipped", exc_info=True)
+
     try:
         yield
     finally:
