@@ -2141,6 +2141,20 @@ class DataFetcherManager:
                         errors.append(error_msg)
                     break
 
+            # 免密钥兜底：Yahoo 限流/被墙时仍能给出美股日线
+            if not is_us_index:
+                free_df, free_source = self._get_us_daily_from_free_sources(
+                    stock_code, days=days
+                )
+                if free_df is not None and not free_df.empty:
+                    elapsed = time.time() - request_start
+                    logger.info(
+                        f"[数据源兜底] {stock_code} 使用免密钥源 [{free_source}] 获取成功: "
+                        f"rows={len(free_df)}, elapsed={elapsed:.2f}s"
+                    )
+                    return free_df, free_source
+                errors.append("[免密钥兜底] 新浪/东财/腾讯均未返回美股日线数据")
+
             error_summary = f"{market_label} {stock_code} 获取失败:\n" + "\n".join(errors)
             elapsed = time.time() - request_start
             logger.error(f"[数据源终止] {stock_code} 获取失败: elapsed={elapsed:.2f}s\n{error_summary}")
@@ -2907,6 +2921,26 @@ class DataFetcherManager:
             pinned, rest = source_order[0], source_order[1:]
             return [pinned] + sorted(rest, key=lambda name: priority_by_name.get(name, 10 ** 9))
         return sorted(source_order, key=lambda name: priority_by_name.get(name, 10 ** 9))
+
+    @staticmethod
+    def _get_us_daily_from_free_sources(
+        stock_code: str, days: int
+    ) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
+        """免密钥美股日线兜底（Yahoo / 付费源全部失败时使用）。
+
+        本地/服务器都可能在 Yahoo 上被限流或断网，但新浪、东财、腾讯的公开
+        行情接口通常仍可访问，因此这里作为美股日线链路的最后一环。
+        """
+        try:
+            from .us_daily_fallback import fetch_us_daily
+        except ImportError as exc:  # pragma: no cover - defensive
+            logger.debug("免密钥美股日线兜底不可用: %s", exc)
+            return None, None
+        try:
+            return fetch_us_daily(stock_code, days=days)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("免密钥美股日线兜底失败 %s: %s", stock_code, exc)
+            return None, None
 
     def _longbridge_preferred(self, capability: str = "realtime_quote") -> bool:
         """Return True when Longbridge keys are configured and available.

@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] 修正外汇/商品等 yfinance 原生代码的外盘归属判断：`_is_foreign_stock()` 现在也以 `STOCK_ENGLISH_NAME_MAP` 为准识别 `XAUUSD=X`、`GC=F`、`DX-Y.NYB`、`SI=F` 等代码，保证与 `STOCK_NAME_MAP` 外键一致。
 - [修复] 黄金日线长期不再写入本地 CSV（数据停在 2026-05-08）：`_append_gold_daily_row` 把字符串日期写进 `datetime64` 列，`sort_values` 抛 `TypeError` 后被启动钩子静默吞掉；现统一做行规范化与按日期去重追加，启动同步与 `POST /api/v1/gold/update-daily` 改为「新浪历史日K → Infoway → 5huangjin」多源补齐，失败改为 `warning` 日志，并已回填 129 个交易日到 2026-10-30。
 - [修复] 黄金页「波段高/波段低」日期显示为 `2026-04-17700:00:00.000000000`：`_find_swings` 改为输出 `YYYY-MM-DD` 纯日期。
+- [改进] 美股日线在本地代理/网络下长期「数据受限」：yfinance 底层 libcurl 只认环境变量代理，现在 `data_provider/proxy_support.py` 会自动探测系统代理（校验端口可连后导出给 yfinance，可用 `YFINANCE_PROXY` 覆盖、`DISABLE_SYSTEM_PROXY_AUTODETECT` 关闭），服务器直连场景自动跳过；Yahoo 仍不可用时，美股日线回落免密钥兜底源「新浪 → 东财 → 腾讯」，单测覆盖解析、排序与深度选择。
 
 ## [3.33.0] - 2026-10-15
 

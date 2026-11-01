@@ -33,6 +33,7 @@ from tenacity import (
 )
 
 from .base import BaseFetcher, DataFetchError, STANDARD_COLUMNS, _is_hk_market, is_bse_code
+from .proxy_support import import_yfinance
 from .realtime_types import UnifiedRealtimeQuote, RealtimeSource
 from .us_index_mapping import get_us_index_yf_symbol, is_us_stock_code
 from .yfinance_fundamental_adapter import _safe_float
@@ -220,7 +221,7 @@ class YfinanceFetcher(BaseFetcher):
         2. 调用 yfinance API
         3. 处理返回数据
         """
-        import yfinance as yf
+        yf = import_yfinance()
 
         # 转换代码格式
         yf_code = self._convert_stock_code(stock_code)
@@ -377,7 +378,7 @@ class YfinanceFetcher(BaseFetcher):
         region=hk 时委托给 _get_hk_main_indices。
         region=jp/kr/tw 时分别委托给对应市场指数方法。
         """
-        import yfinance as yf
+        yf = import_yfinance()
 
         if region == "us":
             return self._get_us_main_indices(yf)
@@ -824,7 +825,7 @@ class YfinanceFetcher(BaseFetcher):
         Returns:
             UnifiedRealtimeQuote or None
         """
-        import yfinance as yf
+        yf = import_yfinance()
 
         try:
             logger.debug(f"[Yfinance] 获取美股指数 {user_code} ({yf_symbol}) 实时行情")
@@ -926,7 +927,7 @@ class YfinanceFetcher(BaseFetcher):
         Returns:
             UnifiedRealtimeQuote 对象，获取失败返回 None
         """
-        import yfinance as yf
+        yf = import_yfinance()
 
         # 美股指数：使用映射（SPX -> ^GSPC）
         yf_symbol, index_name = get_us_index_yf_symbol(stock_code)
@@ -1075,7 +1076,7 @@ class YfinanceFetcher(BaseFetcher):
 
     def _get_yf_native_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """获取 yfinance 原生代码的实时行情（商品、外汇、期货）。"""
-        import yfinance as yf
+        yf = import_yfinance()
 
         symbol = stock_code.strip().upper()
         ticker = yf.Ticker(symbol)
